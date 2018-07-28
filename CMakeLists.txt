@@ -12,7 +12,9 @@ HunterGate(
     SHA1 "51d2d6be411251c8de18c4ca20ef778880cf4cce"
 )
 
-add_subdirectory(../core-cpp-api ${CMAKE_BINARY_DIR}/futoin_api EXCLUDE_FROM_ALL)
+if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_LIST_DIR)
+    add_subdirectory(../core-cpp-api ${CMAKE_BINARY_DIR}/futoin_api EXCLUDE_FROM_ALL)
+endif()
 
 #--------------------------------------
 # Project definition
