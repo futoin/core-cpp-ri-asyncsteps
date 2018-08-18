@@ -106,15 +106,17 @@ if (FUTOIN_WITH_TESTS)
     add_custom_target(
         clangtidy-asyncsteps ALL
         COMMAND /usr/bin/clang-tidy-6.0
-        -checks=bugprone-*,cert-*,clang-analyzer-*,clang-analyzer-*,llvm-*,misc-*,modernize-*,performance-*,readability-*
+        -checks=bugprone-*,cert-*,clang-analyzer-*,clang-analyzer-*,llvm-*,misc-*,modernize-*,-modernize-make-unique,performance-*,readability-*
         #-checks=*
         #-fix
         -format-style=file
         ${LINT_SRC_FILES}
         --
+        -std=c++11
         -I${CMAKE_CURRENT_LIST_DIR}/include/
         -I${CMAKE_CURRENT_LIST_DIR}/../core-cpp-api/include/
     )
+    add_test(clangtidy clangtidy-asyncsteps)
     
     add_custom_target(
         clangformat-asyncsteps ALL
@@ -123,6 +125,7 @@ if (FUTOIN_WITH_TESTS)
         -i
         ${ALL_SRC_FILES}
     )
+    add_test(clangformat clangformat-asyncsteps)
 endif()
 
 #--------------------------------------
