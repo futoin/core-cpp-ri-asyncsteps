@@ -41,7 +41,9 @@ namespace futoin {
 
             using Callback = std::function<void()>;
             class InternalHandle
-            {};
+            {
+                virtual ~InternalHandle() noexcept = default;
+            };
             using Handle = InternalHandle*;
 
             Handle setImmediate(Callback);
@@ -88,6 +90,8 @@ namespace futoin {
             class ParallelStep;
             class Protector;
             struct Impl;
+
+            void execute_handler() noexcept;
 
             std::unique_ptr<Impl> impl_;
         };

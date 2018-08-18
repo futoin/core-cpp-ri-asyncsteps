@@ -29,9 +29,19 @@ namespace futoin {
         using std::forward;
 
         //---
-        [[noreturn]] static void on_invalid_call()
+        [[noreturn]] static void on_invalid_call(
+                const char* extra_error = nullptr)
         {
-            std::cerr << "FATAL: Invalid AsyncSteps interface usage!";
+            std::cerr << std::endl;
+            std::cerr << "FATAL: Invalid AsyncSteps interface usage!"
+                      << std::endl;
+
+            if (extra_error != nullptr) {
+                std::cerr << extra_error << std::endl;
+            }
+
+            std::cerr << std::endl;
+
             std::terminate();
         }
 
@@ -47,6 +57,7 @@ namespace futoin {
             IAsyncTool& async_tool_;
             NextArgs next_args_;
             Queue queue_;
+            IAsyncTool::Handle exec_handle = nullptr;
         };
 
         //---
@@ -126,7 +137,7 @@ namespace futoin {
             futoin::AsyncSteps& copyFrom(
                     futoin::AsyncSteps& /*asi*/) noexcept override
             {
-                on_invalid_call();
+                on_invalid_call("copyFrom() is not supported in C++");
             }
 
             State& state() noexcept override
@@ -157,12 +168,12 @@ namespace futoin {
 
             void execute() noexcept override
             {
-                on_invalid_call();
+                on_invalid_call("execute() in execute()");
             }
 
             void cancel() noexcept override
             {
-                on_invalid_call();
+                on_invalid_call("cancel() in execute()");
             }
 
             void loop_logic(LoopState&& ls) noexcept override
@@ -244,37 +255,37 @@ namespace futoin {
             futoin::AsyncSteps& parallel(
                     ErrorHandler /*on_error*/) noexcept override
             {
-                on_invalid_call();
+                on_invalid_call("parallel() on parallel()");
             }
 
             void success() noexcept override
             {
-                on_invalid_call();
+                on_invalid_call("success() on parallel()");
             }
 
             void handle_error(ErrorCode /*code*/) override
             {
-                on_invalid_call();
+                on_invalid_call("error() on parallel()");
             }
 
             NextArgs& nextargs() noexcept override
             {
-                on_invalid_call();
+                on_invalid_call("nextargs() on parallel()");
             }
 
             void setTimeout(std::chrono::milliseconds /*to*/) noexcept override
             {
-                on_invalid_call();
+                on_invalid_call("setTimeout() on parallel()");
             }
 
             void setCancel(CancelCallback /*cb*/) noexcept override
             {
-                on_invalid_call();
+                on_invalid_call("setCancel() on parallel()");
             }
 
             void waitExternal() noexcept override
             {
-                on_invalid_call();
+                on_invalid_call("waitExternal() on parallel()");
             }
 
         protected:
@@ -330,7 +341,7 @@ namespace futoin {
 
         void BaseAsyncSteps::success() noexcept
         {
-            on_invalid_call();
+            on_invalid_call("success() outside of execute()");
         }
 
         void BaseAsyncSteps::handle_error(ErrorCode /*code*/)
@@ -351,35 +362,49 @@ namespace futoin {
             auto* other = dynamic_cast<BaseAsyncSteps*>(&asi);
             assert(other);
 
-            std::cerr << "FATAL: copyFrom() is not supported in C++"
-                      << std::endl;
-            on_invalid_call();
+            on_invalid_call("copyFrom() is not supported in C++");
         }
 
         void BaseAsyncSteps::setTimeout(
                 std::chrono::milliseconds /*to*/) noexcept
         {
-            on_invalid_call();
+            on_invalid_call("setTimeout() outside execute()");
         }
 
         void BaseAsyncSteps::setCancel(CancelCallback /*cb*/) noexcept
         {
-            on_invalid_call();
+            on_invalid_call("setCancel() outside execute()");
         }
 
         void BaseAsyncSteps::waitExternal() noexcept
         {
-            on_invalid_call();
+            on_invalid_call("waitExternal() outside execute()");
         }
 
         void BaseAsyncSteps::execute() noexcept
         {
-            // TODO
+            impl_->sanity_check();
+
+            if (impl_->exec_handle != nullptr) {
+                on_invalid_call("AsyncSteps instance is already executed.");
+            }
+
+            impl_->exec_handle = impl_->async_tool_.setImmediate(
+                    [this]() { this->execute_handler(); });
         }
+
+        void BaseAsyncSteps::execute_handler() noexcept {}
 
         void BaseAsyncSteps::cancel() noexcept
         {
-            // TODO
+            impl_->sanity_check();
+
+            if (impl_->exec_handle != nullptr) {
+                impl_->async_tool_.cancel(impl_->exec_handle);
+                impl_->exec_handle = nullptr;
+            }
+
+            impl_->queue_.clear();
         }
 
         void BaseAsyncSteps::loop_logic(LoopState&& ls) noexcept
