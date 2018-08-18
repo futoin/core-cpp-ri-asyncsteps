@@ -40,11 +40,63 @@ namespace futoin {
             IAsyncTool& operator=(const IAsyncTool&&) = delete;
 
             using Callback = std::function<void()>;
+
             class InternalHandle
             {
+            public:
+                virtual void cancel() noexcept = 0;
                 virtual ~InternalHandle() noexcept = default;
             };
-            using Handle = InternalHandle*;
+
+            class Handle
+            {
+            public:
+                Handle() = default;
+                Handle(const Handle&) = delete;
+                Handle& operator=(const Handle&) = delete;
+
+                Handle(InternalHandle& internal) noexcept : internal_(&internal)
+                {}
+
+                Handle(Handle&& other) noexcept : internal_(other.internal_)
+                {
+                    other.internal_ = nullptr;
+                }
+
+                Handle& operator=(Handle&& other) noexcept
+                {
+                    if (&other != this) {
+                        if (internal_ != nullptr) {
+                            internal_->cancel();
+                        }
+                        internal_ = other.internal_;
+                        other.internal_ = nullptr;
+                    }
+
+                    return *this;
+                }
+
+                void cancel() noexcept
+                {
+                    if (internal_ != nullptr) {
+                        internal_->cancel();
+                        internal_ = nullptr;
+                    }
+                }
+
+                ~Handle() noexcept
+                {
+                    cancel();
+                }
+
+                operator bool() const noexcept
+                {
+                    return internal_ != nullptr;
+                }
+
+            private:
+                InternalHandle* internal_ = nullptr;
+            };
 
             Handle setImmediate(Callback);
             Handle setTimeout(std::chrono::milliseconds, Callback);
@@ -61,14 +113,14 @@ namespace futoin {
             BaseAsyncSteps& operator=(const BaseAsyncSteps&) = delete;
             BaseAsyncSteps(BaseAsyncSteps&&) = default;
             BaseAsyncSteps& operator=(BaseAsyncSteps&&) = default;
-            ~BaseAsyncSteps() noexcept override = default;
+            ~BaseAsyncSteps() noexcept override;
 
             void add_step(
                     asyncsteps::ExecHandler&& func,
                     asyncsteps::ErrorHandler&& on_error) noexcept override;
             futoin::AsyncSteps& parallel(
                     asyncsteps::ErrorHandler on_error) noexcept override;
-            void success() noexcept override;
+            void handle_success() noexcept override;
             void handle_error(ErrorCode /*code*/) override;
 
             asyncsteps::NextArgs& nextargs() noexcept override;
@@ -90,8 +142,6 @@ namespace futoin {
             class ParallelStep;
             class Protector;
             struct Impl;
-
-            void execute_handler() noexcept;
 
             std::unique_ptr<Impl> impl_;
         };

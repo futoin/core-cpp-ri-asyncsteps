@@ -21,6 +21,7 @@
 #include <deque>
 #include <iostream>
 #include <memory>
+#include <stack>
 
 namespace futoin {
     namespace ri {
@@ -50,14 +51,24 @@ namespace futoin {
         {
             using QueueItem = std::unique_ptr<Protector>;
             using Queue = std::deque<QueueItem>;
+            using Stack = std::stack<Protector*>;
 
             Impl(IAsyncTool& async_tool) : async_tool_(async_tool) {}
             void sanity_check() {}
 
+            void schedule_exec() noexcept;
+            void execute_handler() noexcept;
+            void handle_success() noexcept;
+            void handle_error(ErrorCode code) noexcept;
+            void handle_cancel() noexcept;
+
             IAsyncTool& async_tool_;
             NextArgs next_args_;
             Queue queue_;
-            IAsyncTool::Handle exec_handle = nullptr;
+            Stack stack_;
+            IAsyncTool::Handle exec_handle_;
+            Protector* current_ = nullptr;
+            bool in_exec_ = false;
         };
 
         //---
@@ -82,6 +93,7 @@ namespace futoin {
         class BaseAsyncSteps::Protector : public futoin::AsyncSteps
         {
             friend BaseAsyncSteps;
+            friend BaseAsyncSteps::Impl;
 
             using QueueItem = Impl::QueueItem;
             using Queue = Impl::Queue;
@@ -95,6 +107,12 @@ namespace futoin {
                 func_(forward<ExecHandler>(func)),
                 on_error_(forward<ErrorHandler>(on_error))
             {}
+
+            ~Protector() noexcept override
+            {
+                limit_handle_.cancel();
+                root_ = nullptr;
+            }
 
             void sanity_check()
             {
@@ -118,14 +136,16 @@ namespace futoin {
             futoin::AsyncSteps& parallel(
                     ErrorHandler on_error) noexcept override;
 
-            void success() noexcept override
+            void handle_success() noexcept override
             {
                 sanity_check();
+                root_->impl_->handle_success();
             }
 
-            void handle_error(ErrorCode /*code*/) override
+            void handle_error(ErrorCode code) override
             {
                 sanity_check();
+                root_->impl_->handle_error(code);
             }
 
             NextArgs& nextargs() noexcept override
@@ -146,9 +166,11 @@ namespace futoin {
                 return root_->state();
             }
 
-            void setTimeout(std::chrono::milliseconds /*to*/) noexcept override
+            void setTimeout(std::chrono::milliseconds to) noexcept override
             {
-                // TODO:
+                sanity_check();
+                limit_handle_ = root_->impl_->async_tool_.setTimeout(
+                        to, [this]() { this->cancel(); });
             }
 
             void setCancel(CancelCallback cb) noexcept override
@@ -207,6 +229,7 @@ namespace futoin {
             ExecHandler func_;
             ErrorHandler on_error_;
             CancelCallback on_cancel_;
+            IAsyncTool::Handle limit_handle_;
             std::unique_ptr<LoopState> loop_state_;
         };
 
@@ -228,6 +251,13 @@ namespace futoin {
                         },
                         forward<ErrorHandler>(on_error))
             {}
+
+            ~ParallelStep() noexcept override
+            {
+                for (auto& v : items_) {
+                    v.cancel();
+                }
+            }
 
             void add_step(
                     ExecHandler&& func,
@@ -258,7 +288,7 @@ namespace futoin {
                 on_invalid_call("parallel() on parallel()");
             }
 
-            void success() noexcept override
+            void handle_success() noexcept override
             {
                 on_invalid_call("success() on parallel()");
             }
@@ -291,7 +321,10 @@ namespace futoin {
         protected:
             ParallelItems items_;
 
-            void process() {}
+            void process()
+            {
+                // TODO
+            }
         };
 
         //---
@@ -313,6 +346,11 @@ namespace futoin {
         BaseAsyncSteps::BaseAsyncSteps(IAsyncTool& async_tool) :
             impl_(new Impl(async_tool))
         {}
+
+        BaseAsyncSteps::~BaseAsyncSteps() noexcept
+        {
+            BaseAsyncSteps::cancel();
+        }
 
         void BaseAsyncSteps::add_step(
                 ExecHandler&& func, ErrorHandler&& on_error) noexcept
@@ -339,14 +377,14 @@ namespace futoin {
             return *this;
         }
 
-        void BaseAsyncSteps::success() noexcept
+        void BaseAsyncSteps::handle_success() noexcept
         {
             on_invalid_call("success() outside of execute()");
         }
 
         void BaseAsyncSteps::handle_error(ErrorCode /*code*/)
         {
-            impl_->sanity_check();
+            on_invalid_call("error() outside of execute()");
         }
 
         NextArgs& BaseAsyncSteps::nextargs() noexcept
@@ -384,27 +422,13 @@ namespace futoin {
         void BaseAsyncSteps::execute() noexcept
         {
             impl_->sanity_check();
-
-            if (impl_->exec_handle != nullptr) {
-                on_invalid_call("AsyncSteps instance is already executed.");
-            }
-
-            impl_->exec_handle = impl_->async_tool_.setImmediate(
-                    [this]() { this->execute_handler(); });
+            impl_->schedule_exec();
         }
-
-        void BaseAsyncSteps::execute_handler() noexcept {}
 
         void BaseAsyncSteps::cancel() noexcept
         {
             impl_->sanity_check();
-
-            if (impl_->exec_handle != nullptr) {
-                impl_->async_tool_.cancel(impl_->exec_handle);
-                impl_->exec_handle = nullptr;
-            }
-
-            impl_->queue_.clear();
+            impl_->handle_cancel();
         }
 
         void BaseAsyncSteps::loop_logic(LoopState&& ls) noexcept
@@ -422,6 +446,154 @@ namespace futoin {
         {
             return std::unique_ptr<futoin::AsyncSteps>(
                     new ri::AsyncSteps(impl_->async_tool_));
+        }
+
+        //---
+        void BaseAsyncSteps::Impl::schedule_exec() noexcept
+        {
+            if (exec_handle_) {
+                on_invalid_call("AsyncSteps instance is already executed.");
+            }
+
+            exec_handle_ = async_tool_.setImmediate(
+                    [this]() { this->execute_handler(); });
+        }
+
+        void BaseAsyncSteps::Impl::execute_handler() noexcept
+        {
+            exec_handle_.cancel();
+            Protector* next = nullptr;
+
+            while (!stack_.empty()) {
+                auto& q = stack_.top()->queue_;
+
+                if (!q.empty()) {
+                    next = q.front().get();
+                }
+            }
+
+            if (next == nullptr) {
+                if (queue_.empty()) {
+                    return;
+                }
+
+                next = queue_.front().get();
+            }
+
+            try {
+                current_ = next;
+                in_exec_ = true;
+                next->func_(*next);
+
+                if (!next->queue_.empty()) {
+                    schedule_exec();
+                } else if (!next->on_cancel_ && !next->limit_handle_) {
+                    next->success();
+                }
+
+                in_exec_ = false;
+            } catch (const std::exception& e) {
+                next->handle_error(e.what());
+                in_exec_ = false;
+            }
+        }
+
+        void BaseAsyncSteps::Impl::handle_success() noexcept
+        {
+            if (current_ != stack_.top()) {
+                on_invalid_call("success() out of order");
+            }
+
+            if (!current_->queue_.empty()) {
+                on_invalid_call("success() with sub-steps");
+            }
+
+            while (!stack_.empty()) {
+                stack_.pop();
+
+                current_ = stack_.top();
+
+                auto& q = current_->queue_;
+                q.pop_front();
+
+                if (!q.empty()) {
+                    schedule_exec();
+                    return;
+                }
+            }
+
+            // Got to root queue
+            queue_.pop_front();
+
+            if (!queue_.empty()) {
+                schedule_exec();
+            }
+        }
+
+        void BaseAsyncSteps::Impl::handle_error(ErrorCode code) noexcept
+        {
+            if (exec_handle_) {
+                // Out-of-sequence error
+                handle_cancel();
+                return;
+            }
+
+            if (in_exec_) {
+                // avoid double handling
+                return;
+            }
+
+            if (current_ != stack_.top()) {
+                on_invalid_call("error() out of order");
+            }
+
+            while (!stack_.empty()) {
+                current_->queue_.clear();
+
+                current_->limit_handle_.cancel();
+
+                auto& on_cancel = current_->on_cancel_;
+
+                if (on_cancel) {
+                    on_cancel(*current_);
+                    current_->on_cancel_ = nullptr;
+                }
+
+                ErrorHandler on_error{std::move(current_->on_error_)};
+
+                if (on_error) {
+                    try {
+                        in_exec_ = true;
+                        auto slen = stack_.size();
+                        on_error(*current_, code);
+
+                        if (stack_.size() != slen) {
+                            // success() was called
+                            return;
+                        }
+
+                        if (!current_->queue_.empty()) {
+                            schedule_exec();
+                            return;
+                        }
+                    } catch (const std::exception& e) {
+                        in_exec_ = false;
+                        code = e.what();
+                    }
+                }
+
+                stack_.pop();
+                current_ = stack_.top();
+            }
+
+            queue_.clear();
+            current_ = nullptr;
+        }
+
+        void BaseAsyncSteps::Impl::handle_cancel() noexcept
+        {
+            exec_handle_.cancel();
+            queue_.clear();
         }
 
         //---
