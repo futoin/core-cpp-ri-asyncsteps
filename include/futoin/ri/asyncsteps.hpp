@@ -23,11 +23,35 @@
 #define FUTOIN_RI_ASYNCSTEPS_HPP
 //---
 #include <futoin/asyncsteps.hpp>
-#include <memory>
 //---
 
 namespace futoin {
     namespace ri {
+        /**
+         * @brief Interface of async reactor.
+         */
+        class IAsyncTool
+        {
+        public:
+            IAsyncTool() = default;
+            IAsyncTool(const IAsyncTool&) = delete;
+            IAsyncTool& operator=(const IAsyncTool&) = delete;
+            IAsyncTool(const IAsyncTool&&) = delete;
+            IAsyncTool& operator=(const IAsyncTool&&) = delete;
+
+            using Callback = std::function<void()>;
+            class InternalHandle
+            {};
+            using Handle = InternalHandle*;
+
+            Handle setImmediate(Callback);
+            Handle setTimeout(std::chrono::milliseconds, Callback);
+            void cancel(Handle);
+        };
+
+        /**
+         * @brief Common implementation of AsyncSteps
+         */
         class BaseAsyncSteps : public futoin::AsyncSteps
         {
         public:
@@ -48,7 +72,6 @@ namespace futoin {
             asyncsteps::NextArgs& nextargs() noexcept override;
             futoin::AsyncSteps& copyFrom(
                     futoin::AsyncSteps& /*asi*/) noexcept override;
-            asyncsteps::State& state() noexcept override;
 
             void setTimeout(std::chrono::milliseconds /*to*/) noexcept override;
             void setCancel(asyncsteps::CancelCallback /*cb*/) noexcept override;
@@ -56,28 +79,34 @@ namespace futoin {
             void execute() noexcept override;
             void cancel() noexcept override;
             void loop_logic(asyncsteps::LoopState&& ls) noexcept override;
+            std::unique_ptr<futoin::AsyncSteps> newInstance() noexcept override;
 
         protected:
-            BaseAsyncSteps(asyncsteps::State& state_);
+            BaseAsyncSteps(IAsyncTool&);
 
         private:
             class ParallelStep;
             class Protector;
-            class Impl;
+            struct Impl;
 
             std::unique_ptr<Impl> impl_;
-            asyncsteps::State* state_;
         };
 
+        /**
+         * @brief AsyncSteps reference implementation
+         */
         class AsyncSteps final : public BaseAsyncSteps
         {
         public:
-            AsyncSteps();
+            AsyncSteps(IAsyncTool&);
+
             AsyncSteps(const AsyncSteps&) = delete;
             AsyncSteps& operator=(const AsyncSteps&) = delete;
             AsyncSteps(AsyncSteps&&) = default;
             AsyncSteps& operator=(AsyncSteps&&) = default;
             ~AsyncSteps() noexcept override = default;
+
+            asyncsteps::State& state() noexcept override;
 
         private:
             asyncsteps::State state_;

@@ -36,15 +36,46 @@ namespace futoin {
         }
 
         //---
+        struct BaseAsyncSteps::Impl
+        {
+            using QueueItem = std::unique_ptr<Protector>;
+            using Queue = std::deque<QueueItem>;
+
+            Impl(IAsyncTool& async_tool) : async_tool_(async_tool) {}
+            void sanity_check() {}
+
+            IAsyncTool& async_tool_;
+            NextArgs next_args_;
+            Queue queue_;
+        };
+
+        //---
+        class SubAsyncSteps final : public BaseAsyncSteps
+        {
+        public:
+            SubAsyncSteps(State& state, IAsyncTool& async_tool) :
+                BaseAsyncSteps(async_tool), state_(state)
+            {}
+
+            State& state() noexcept override
+            {
+                return state_;
+            }
+
+        private:
+            State& state_;
+        };
+
+        //---
 
         class BaseAsyncSteps::Protector : public futoin::AsyncSteps
         {
             friend BaseAsyncSteps;
 
-        public:
-            using QueueItem = std::unique_ptr<Protector>;
-            using Queue = std::deque<QueueItem>;
+            using QueueItem = Impl::QueueItem;
+            using Queue = Impl::Queue;
 
+        public:
             Protector(
                     BaseAsyncSteps& root,
                     ExecHandler&& func = {},
@@ -151,6 +182,13 @@ namespace futoin {
                 (void) ls;
             }
 
+            std::unique_ptr<futoin::AsyncSteps> newInstance() noexcept override
+            {
+                sanity_check();
+
+                return root_->newInstance();
+            }
+
         protected:
             BaseAsyncSteps* root_;
             Queue queue_;
@@ -163,11 +201,12 @@ namespace futoin {
 
         //---
 
-        class BaseAsyncSteps::ParallelStep : public BaseAsyncSteps::Protector
+        class BaseAsyncSteps::ParallelStep final
+            : public BaseAsyncSteps::Protector
         {
             friend BaseAsyncSteps;
 
-            using ParallelItems = std::deque<BaseAsyncSteps>;
+            using ParallelItems = std::deque<SubAsyncSteps>;
 
         public:
             ParallelStep(BaseAsyncSteps& root, ErrorHandler&& on_error) :
@@ -185,7 +224,7 @@ namespace futoin {
             {
                 sanity_check();
 
-                BaseAsyncSteps asi(state());
+                SubAsyncSteps asi(root_->state(), root_->impl_->async_tool_);
                 asi.add(forward<ExecHandler>(func),
                         forward<ErrorHandler>(on_error));
 
@@ -196,7 +235,7 @@ namespace futoin {
             {
                 sanity_check();
 
-                BaseAsyncSteps asi(state());
+                SubAsyncSteps asi(root_->state(), root_->impl_->async_tool_);
                 asi.loop_logic(forward<LoopState>(ls));
 
                 items_.push_back(std::move(asi));
@@ -259,20 +298,9 @@ namespace futoin {
         }
 
         //---
-        class BaseAsyncSteps::Impl
-        {
-            friend BaseAsyncSteps;
 
-            void sanity_check() {}
-
-            NextArgs next_args_;
-            Protector::Queue queue_;
-        };
-
-        //---
-
-        BaseAsyncSteps::BaseAsyncSteps(State& state_) :
-            impl_(new Impl), state_(&state_)
+        BaseAsyncSteps::BaseAsyncSteps(IAsyncTool& async_tool) :
+            impl_(new Impl(async_tool))
         {}
 
         void BaseAsyncSteps::add_step(
@@ -286,11 +314,6 @@ namespace futoin {
                     forward<ErrorHandler>(on_error)));
 
             impl_->queue_.push_back(std::move(qi));
-        }
-
-        State& BaseAsyncSteps::state() noexcept
-        {
-            return *state_;
         }
 
         futoin::AsyncSteps& BaseAsyncSteps::parallel(
@@ -349,11 +372,13 @@ namespace futoin {
             on_invalid_call();
         }
 
-        void BaseAsyncSteps::execute() noexcept {
+        void BaseAsyncSteps::execute() noexcept
+        {
             // TODO
         }
 
-        void BaseAsyncSteps::cancel() noexcept {
+        void BaseAsyncSteps::cancel() noexcept
+        {
             // TODO
         }
 
@@ -367,5 +392,17 @@ namespace futoin {
             impl_->queue_.push_back(std::move(qi));
         }
 
+        std::unique_ptr<futoin::AsyncSteps>
+        BaseAsyncSteps::newInstance() noexcept
+        {
+            return std::unique_ptr<futoin::AsyncSteps>(
+                    new ri::AsyncSteps(impl_->async_tool_));
+        }
+
+        //---
+        State& AsyncSteps::state() noexcept
+        {
+            return state_;
+        }
     } // namespace ri
 } // namespace futoin
