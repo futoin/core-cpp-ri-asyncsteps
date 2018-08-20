@@ -32,6 +32,9 @@ namespace futoin {
          */
         class IAsyncTool
         {
+        protected:
+            struct HandleAccessor;
+
         public:
             IAsyncTool() = default;
             IAsyncTool(const IAsyncTool&) = delete;
@@ -40,14 +43,21 @@ namespace futoin {
             IAsyncTool& operator=(const IAsyncTool&&) = delete;
 
             using Callback = std::function<void()>;
+            class Handle;
 
-            class InternalHandle
+            struct InternalHandle
             {
-            public:
-                virtual void cancel() noexcept = 0;
-                virtual ~InternalHandle() noexcept = default;
+                InternalHandle(Callback&& cb) :
+                    callback(std::forward<Callback>(cb))
+                {}
+
+                Callback callback;
+                Handle* outer = nullptr;
             };
 
+            /**
+             * @brief Handle to scheduled callback
+             */
             class Handle
             {
             public:
@@ -56,21 +66,36 @@ namespace futoin {
                 Handle& operator=(const Handle&) = delete;
 
                 Handle(InternalHandle& internal) noexcept : internal_(&internal)
-                {}
+                {
+                    internal.outer = this;
+                }
 
                 Handle(Handle&& other) noexcept : internal_(other.internal_)
                 {
-                    other.internal_ = nullptr;
+                    if (other.async_tool_ != nullptr) {
+                        other.async_tool_->move(other, *this);
+                    }
+                }
+
+                ~Handle() noexcept
+                {
+                    if (internal_ != nullptr) {
+                        async_tool_->free(*this);
+                    }
                 }
 
                 Handle& operator=(Handle&& other) noexcept
                 {
                     if (&other != this) {
-                        if (internal_ != nullptr) {
-                            internal_->cancel();
+                        if (other.async_tool_ != nullptr) {
+                            if (internal_ != nullptr) {
+                                async_tool_->free(*this);
+                            }
+
+                            other.async_tool_->move(other, *this);
+                        } else {
+                            cancel();
                         }
-                        internal_ = other.internal_;
-                        other.internal_ = nullptr;
                     }
 
                     return *this;
@@ -79,14 +104,9 @@ namespace futoin {
                 void cancel() noexcept
                 {
                     if (internal_ != nullptr) {
-                        internal_->cancel();
+                        async_tool_->cancel(*this);
                         internal_ = nullptr;
                     }
-                }
-
-                ~Handle() noexcept
-                {
-                    cancel();
                 }
 
                 operator bool() const noexcept
@@ -95,12 +115,65 @@ namespace futoin {
                 }
 
             private:
+                friend struct IAsyncTool::HandleAccessor;
+
                 InternalHandle* internal_ = nullptr;
+                IAsyncTool* async_tool_ = nullptr;
             };
 
-            Handle setImmediate(Callback);
-            Handle setTimeout(std::chrono::milliseconds, Callback);
-            void cancel(Handle);
+            /**
+             * @brief Schedule immediate callback
+             */
+            virtual Handle immediate(Callback&& cb) noexcept = 0;
+
+            /**
+             * @brief Schedule deferred callback
+             */
+            virtual Handle deferred(
+                    std::chrono::milliseconds delay,
+                    Callback&& cb) noexcept = 0;
+
+            /**
+             * @brief Check, if the same thread as internal event loop
+             */
+            virtual bool is_same_thread() noexcept = 0;
+
+            /**
+             * Result of one internal cycle
+             */
+            struct CycleResult
+            {
+                CycleResult(
+                        bool have_work,
+                        std::chrono::milliseconds delay) noexcept :
+                    delay(delay),
+                    have_work(have_work)
+                {}
+
+                std::chrono::milliseconds delay;
+                bool have_work;
+            };
+
+            /**
+             * @brief Iterate a cycle of internal loop.
+             * @note For integration with external event loop.
+             */
+            CycleResult iterate() noexcept;
+
+        protected:
+            struct HandleAccessor
+            {
+                HandleAccessor(Handle& h) :
+                    internal_(h.internal_), async_tool_(h.async_tool_)
+                {}
+
+                InternalHandle*& internal_;
+                IAsyncTool*& async_tool_;
+            };
+
+            virtual void cancel(Handle& h) noexcept = 0;
+            virtual void move(Handle& src, Handle& dst) noexcept = 0;
+            virtual void free(Handle& h) noexcept = 0;
         };
 
         /**
@@ -111,8 +184,8 @@ namespace futoin {
         public:
             BaseAsyncSteps(const BaseAsyncSteps&) = delete;
             BaseAsyncSteps& operator=(const BaseAsyncSteps&) = delete;
-            BaseAsyncSteps(BaseAsyncSteps&&) = default;
-            BaseAsyncSteps& operator=(BaseAsyncSteps&&) = default;
+            BaseAsyncSteps(BaseAsyncSteps&&) noexcept = default;
+            BaseAsyncSteps& operator=(BaseAsyncSteps&&) noexcept = default;
             ~BaseAsyncSteps() noexcept override;
 
             void add_step(
@@ -136,7 +209,7 @@ namespace futoin {
             std::unique_ptr<futoin::AsyncSteps> newInstance() noexcept override;
 
         protected:
-            BaseAsyncSteps(IAsyncTool&);
+            BaseAsyncSteps(IAsyncTool&) noexcept;
 
         private:
             class ParallelStep;
@@ -152,12 +225,12 @@ namespace futoin {
         class AsyncSteps final : public BaseAsyncSteps
         {
         public:
-            AsyncSteps(IAsyncTool&);
+            AsyncSteps(IAsyncTool&) noexcept;
 
             AsyncSteps(const AsyncSteps&) = delete;
             AsyncSteps& operator=(const AsyncSteps&) = delete;
-            AsyncSteps(AsyncSteps&&) = default;
-            AsyncSteps& operator=(AsyncSteps&&) = default;
+            AsyncSteps(AsyncSteps&&) noexcept = default;
+            AsyncSteps& operator=(AsyncSteps&&) noexcept = default;
             ~AsyncSteps() noexcept override = default;
 
             asyncsteps::State& state() noexcept override;

@@ -26,8 +26,44 @@
 
 namespace futoin {
     namespace ri {
-        class AsyncTool : public IAsyncTool
-        {};
+        /**
+         * @brief Async reactor implementation
+         */
+        class AsyncTool final : public IAsyncTool
+        {
+        public:
+            /**
+             * @brief Initialize with internal thread loop
+             */
+            AsyncTool() noexcept;
+
+            /**
+             * @brief Initialize for external thread loop
+             */
+            AsyncTool(std::function<void()> poke_external) noexcept;
+
+            ~AsyncTool() noexcept = default;
+            AsyncTool(const AsyncTool&) = delete;
+            AsyncTool& operator=(const AsyncTool&) = delete;
+            AsyncTool(AsyncTool&&) = delete;
+            AsyncTool& operator=(AsyncTool*&) = delete;
+
+            Handle immediate(Callback&& cb) noexcept override;
+            Handle deferred(
+                    std::chrono::milliseconds delay,
+                    Callback&& cb) noexcept override;
+            bool is_same_thread() noexcept override;
+            CycleResult iterate() noexcept;
+
+        protected:
+            void cancel(Handle& h) noexcept override;
+            void move(Handle& src, Handle& dst) noexcept override;
+            void free(Handle& h) noexcept override;
+
+        private:
+            struct Impl;
+            std::unique_ptr<Impl> impl_;
+        };
     } // namespace ri
 } // namespace futoin
 

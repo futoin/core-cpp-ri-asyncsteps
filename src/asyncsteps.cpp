@@ -75,7 +75,7 @@ namespace futoin {
         class SubAsyncSteps final : public BaseAsyncSteps
         {
         public:
-            SubAsyncSteps(State& state, IAsyncTool& async_tool) :
+            SubAsyncSteps(State& state, IAsyncTool& async_tool) noexcept :
                 BaseAsyncSteps(async_tool), state_(state)
             {}
 
@@ -102,7 +102,7 @@ namespace futoin {
             Protector(
                     BaseAsyncSteps& root,
                     ExecHandler&& func = {},
-                    ErrorHandler&& on_error = {}) :
+                    ErrorHandler&& on_error = {}) noexcept :
                 root_(&root),
                 func_(forward<ExecHandler>(func)),
                 on_error_(forward<ErrorHandler>(on_error))
@@ -169,7 +169,7 @@ namespace futoin {
             void setTimeout(std::chrono::milliseconds to) noexcept override
             {
                 sanity_check();
-                limit_handle_ = root_->impl_->async_tool_.setTimeout(
+                limit_handle_ = root_->impl_->async_tool_.deferred(
                         to, [this]() { this->cancel(); });
             }
 
@@ -207,7 +207,7 @@ namespace futoin {
                 queue_.push_back(std::move(qi));
             }
 
-            static void loop_handler(futoin::AsyncSteps& asi)
+            static void loop_handler(futoin::AsyncSteps& asi) noexcept
             {
                 auto& that = static_cast<Protector&>(asi);
                 auto& ls = *(that.loop_state_);
@@ -243,7 +243,8 @@ namespace futoin {
             using ParallelItems = std::deque<SubAsyncSteps>;
 
         public:
-            ParallelStep(BaseAsyncSteps& root, ErrorHandler&& on_error) :
+            ParallelStep(
+                    BaseAsyncSteps& root, ErrorHandler&& on_error) noexcept :
                 Protector(
                         root,
                         [](futoin::AsyncSteps& asi) {
@@ -321,7 +322,7 @@ namespace futoin {
         protected:
             ParallelItems items_;
 
-            void process()
+            void process() noexcept
             {
                 // TODO
             }
@@ -343,7 +344,7 @@ namespace futoin {
 
         //---
 
-        BaseAsyncSteps::BaseAsyncSteps(IAsyncTool& async_tool) :
+        BaseAsyncSteps::BaseAsyncSteps(IAsyncTool& async_tool) noexcept :
             impl_(new Impl(async_tool))
         {}
 
@@ -455,7 +456,7 @@ namespace futoin {
                 on_invalid_call("AsyncSteps instance is already executed.");
             }
 
-            exec_handle_ = async_tool_.setImmediate(
+            exec_handle_ = async_tool_.immediate(
                     [this]() { this->execute_handler(); });
         }
 
