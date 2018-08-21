@@ -45,10 +45,11 @@ file(GLOB_RECURSE FUTOIN_ASYNCSTEPS_SRC
 
 # Result objects
 #-----
+find_package(Threads REQUIRED)
 add_library(${PROJECT_NAME} ${FUTOIN_ASYNCSTEPS_SRC})
 add_library(futoin::asyncsteps ALIAS ${PROJECT_NAME})
 
-target_link_libraries(${PROJECT_NAME} PUBLIC futoin::api)
+target_link_libraries(${PROJECT_NAME} PUBLIC futoin::api Threads::Threads)
 
 target_include_directories(${PROJECT_NAME} PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/include
@@ -81,6 +82,7 @@ if (FUTOIN_WITH_TESTS)
 
     #---
     add_executable(RIAsyncStepsTest
+        tests/asynctool.test.cpp
         tests/common.test.cpp
         tests/main.test.cpp
     )

@@ -32,6 +32,8 @@ namespace futoin {
         class AsyncTool final : public IAsyncTool
         {
         public:
+            static constexpr size_t BURST_COUNT = 100U;
+
             /**
              * @brief Initialize with internal thread loop
              */
@@ -42,7 +44,7 @@ namespace futoin {
              */
             AsyncTool(std::function<void()> poke_external) noexcept;
 
-            ~AsyncTool() noexcept = default;
+            ~AsyncTool() noexcept override;
             AsyncTool(const AsyncTool&) = delete;
             AsyncTool& operator=(const AsyncTool&) = delete;
             AsyncTool(AsyncTool&&) = delete;

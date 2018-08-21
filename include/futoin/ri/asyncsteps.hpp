@@ -41,6 +41,7 @@ namespace futoin {
             IAsyncTool& operator=(const IAsyncTool&) = delete;
             IAsyncTool(const IAsyncTool&&) = delete;
             IAsyncTool& operator=(const IAsyncTool&&) = delete;
+            virtual ~IAsyncTool() noexcept = default;
 
             using Callback = std::function<void()>;
             class Handle;
@@ -65,7 +66,10 @@ namespace futoin {
                 Handle(const Handle&) = delete;
                 Handle& operator=(const Handle&) = delete;
 
-                Handle(InternalHandle& internal) noexcept : internal_(&internal)
+                Handle(InternalHandle& internal,
+                       IAsyncTool& async_tool) noexcept :
+                    internal_(&internal),
+                    async_tool_(&async_tool)
                 {
                     internal.outer = this;
                 }

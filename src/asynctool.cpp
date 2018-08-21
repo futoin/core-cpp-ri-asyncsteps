@@ -32,16 +32,11 @@ namespace futoin {
     namespace ri {
         using std::chrono::steady_clock;
 
+        constexpr size_t AsyncTool::BURST_COUNT;
+
         struct AsyncTool::Impl
         {
-            struct ImmediateHandle : InternalHandle
-            {
-                ImmediateHandle(Callback&& cb) :
-                    InternalHandle(std::forward<Callback>(cb))
-                {}
-
-                bool canceled = false;
-            };
+            using ImmediateHandle = InternalHandle;
 
             struct DeferredHandle : ImmediateHandle
             {
@@ -61,7 +56,7 @@ namespace futoin {
                 }
             };
 
-            Impl() : have_tasks(false), is_shutdown(false) {}
+            Impl() : is_shutdown(false) {}
 
             ~Impl() noexcept
             {
@@ -78,14 +73,14 @@ namespace futoin {
                 }
 
                 std::lock_guard<std::mutex> le(exec_mutex);
-                std::lock_guard<std::mutex> lt(task_mutex);
+                std::lock_guard<std::mutex> lt(handle_mutex);
 
                 for (auto& v : handle_tasks) {
                     v();
                 }
 
                 for (auto& v : immed_queue) {
-                    v.canceled = true;
+                    v.callback = Callback();
 
                     if (v.outer != nullptr) {
                         HandleAccessor(*(v.outer)).internal_ = nullptr;
@@ -94,7 +89,7 @@ namespace futoin {
                 }
 
                 for (auto& v : defer_used_heap) {
-                    v.canceled = true;
+                    v.callback = Callback();
 
                     if (v.outer != nullptr) {
                         HandleAccessor(*(v.outer)).internal_ = nullptr;
@@ -105,7 +100,7 @@ namespace futoin {
 
             void poke() noexcept
             {
-                poke_external();
+                poke_cb();
             }
 
             void process() noexcept;
@@ -132,25 +127,21 @@ namespace futoin {
             std::condition_variable poke_var;
 
             //---
-            std::mutex task_mutex;
+            std::mutex handle_mutex;
             using HandleTask = std::packaged_task<Handle()>;
             std::deque<HandleTask> handle_tasks;
-            std::atomic_bool have_tasks = ATOMIC_FLAG_INIT;
 
             //---
-            std::atomic_bool is_shutdown = ATOMIC_FLAG_INIT;
-            std::function<void()> poke_external;
+            std::atomic_bool is_shutdown{false};
+            std::function<void()> poke_cb;
             std::thread::id reactor_thread_id;
             std::unique_ptr<std::thread> thread;
-
-            static constexpr size_t IMMED_BURST = 100;
-            static constexpr size_t DEFER_BURST = IMMED_BURST;
         };
 
         AsyncTool::AsyncTool() noexcept : impl_(new Impl)
         {
             auto& poke_var = impl_->poke_var;
-            impl_->poke_external = [&]() { poke_var.notify_one(); };
+            impl_->poke_cb = [&]() { poke_var.notify_one(); };
 
             impl_->thread.reset(new std::thread{&Impl::process, impl_.get()});
             impl_->reactor_thread_id = impl_->thread->get_id();
@@ -159,9 +150,11 @@ namespace futoin {
         AsyncTool::AsyncTool(std::function<void()> poke_external) noexcept :
             impl_(new Impl)
         {
-            impl_->poke_external = std::move(poke_external);
+            impl_->poke_cb = std::move(poke_external);
             impl_->reactor_thread_id = std::this_thread::get_id();
         }
+
+        AsyncTool::~AsyncTool() noexcept = default;
 
         AsyncTool::Handle AsyncTool::immediate(Callback&& cb) noexcept
         {
@@ -172,18 +165,17 @@ namespace futoin {
                 auto res = task.get_future();
 
                 {
-                    std::lock_guard<std::mutex> lock(impl_->task_mutex);
+                    std::lock_guard<std::mutex> lock(impl_->handle_mutex);
                     impl_->handle_tasks.emplace_back(std::move(task));
                 }
 
                 impl_->poke();
-                res.wait();
                 return res.get();
             }
 
             auto& q = impl_->immed_queue;
             q.emplace_back(std::forward<Callback>(cb));
-            return q.back();
+            return {q.back(), *this};
         }
 
         AsyncTool::Handle AsyncTool::deferred(
@@ -196,12 +188,11 @@ namespace futoin {
                 auto res = task.get_future();
 
                 {
-                    std::lock_guard<std::mutex> lock(impl_->task_mutex);
+                    std::lock_guard<std::mutex> lock(impl_->handle_mutex);
                     impl_->handle_tasks.emplace_back(std::move(task));
                 }
 
                 impl_->poke();
-                res.wait();
                 return res.get();
             }
 
@@ -223,7 +214,7 @@ namespace futoin {
             }
 
             q.push(it);
-            return *it;
+            return {*it, *this};
         }
 
         bool AsyncTool::is_same_thread() noexcept
@@ -233,9 +224,9 @@ namespace futoin {
 
         void AsyncTool::Impl::process() noexcept
         {
-            while (!is_shutdown) {
-                std::unique_lock<std::mutex> lock(exec_mutex);
+            std::unique_lock<std::mutex> lock(exec_mutex);
 
+            while (!is_shutdown) {
                 iterate(lock);
 
                 if (immed_queue.empty()) {
@@ -272,48 +263,81 @@ namespace futoin {
                 std::unique_lock<std::mutex>& /*exec_lock*/) noexcept
         {
             // process immediates
-            for (size_t i = 0; (i < IMMED_BURST) && !immed_queue.empty(); ++i) {
-                auto& h = immed_queue.front();
+            {
+                auto immed_iter = immed_queue.begin();
+                const auto immed_end = (immed_queue.size() < BURST_COUNT)
+                                               ? immed_queue.end()
+                                               : immed_iter + BURST_COUNT;
 
-                if (!h.canceled) {
-                    if (h.outer != nullptr) {
-                        HandleAccessor(*(h.outer)).internal_ = nullptr;
-                        h.outer = nullptr;
+                for (; immed_iter != immed_end; ++immed_iter) {
+                    auto& cb = immed_iter->callback;
+
+                    if (cb) {
+                        cb();
+                        cb = Callback();
                     }
-
-                    h.callback();
                 }
-
-                immed_queue.pop_front();
             }
 
             // process deferred
-            auto now = steady_clock::now();
+            const auto now = steady_clock::now();
+            DeferredHeap defer_just_freed;
 
-            for (size_t i = 0; (i < DEFER_BURST) && !defer_queue.empty(); ++i) {
+            for (size_t i = std::min(BURST_COUNT, defer_queue.size()); i > 0;
+                 --i) {
                 auto& h_it = defer_queue.top();
 
                 if (h_it->when > now) {
                     break;
                 }
 
-                if (!h_it->canceled) {
-                    if (h_it->outer != nullptr) {
-                        HandleAccessor(*(h_it->outer)).internal_ = nullptr;
-                        h_it->outer = nullptr;
-                    }
+                auto& cb = h_it->callback;
 
-                    h_it->callback();
+                if (cb) {
+                    cb();
+                    cb = Callback();
                 }
 
-                defer_free_heap.splice(
-                        defer_free_heap.begin(), defer_used_heap, h_it);
+                defer_just_freed.splice(
+                        defer_just_freed.begin(), defer_used_heap, h_it);
 
                 defer_queue.pop();
             }
 
-            if (have_tasks) {
-                std::lock_guard<std::mutex> lock(task_mutex);
+            // cleanup & requests
+            {
+                std::lock_guard<std::mutex> lock(handle_mutex);
+
+                while (!immed_queue.empty()) {
+                    auto& h = immed_queue.front();
+
+                    if (!h.callback) {
+                        auto outer = h.outer;
+
+                        if (outer != nullptr) {
+                            HandleAccessor(*outer).internal_ = nullptr;
+                            h.outer = nullptr;
+                        }
+
+                        immed_queue.pop_front();
+                    } else {
+                        break;
+                    }
+                }
+
+                while (!defer_just_freed.empty()) {
+                    auto h_it = defer_just_freed.begin();
+
+                    auto outer = h_it->outer;
+
+                    if (outer != nullptr) {
+                        HandleAccessor(*outer).internal_ = nullptr;
+                        h_it->outer = nullptr;
+                    }
+
+                    defer_free_heap.splice(
+                            defer_free_heap.begin(), defer_just_freed, h_it);
+                }
 
                 while (!handle_tasks.empty()) {
                     handle_tasks.front()();
@@ -326,7 +350,7 @@ namespace futoin {
         {
             HandleAccessor ha(h);
             std::unique_lock<std::mutex> lock(
-                    impl_->exec_mutex, std::defer_lock);
+                    impl_->handle_mutex, std::defer_lock);
 
             if (!is_same_thread()) {
                 lock.lock();
@@ -337,7 +361,7 @@ namespace futoin {
             }
 
             auto internal = static_cast<Impl::ImmediateHandle*>(ha.internal_);
-            internal->canceled = true;
+            internal->callback = Callback();
             internal->outer = nullptr;
             ha.internal_ = nullptr;
         }
@@ -347,7 +371,7 @@ namespace futoin {
             HandleAccessor srca(src);
             HandleAccessor dsta(dst);
             std::unique_lock<std::mutex> lock(
-                    impl_->exec_mutex, std::defer_lock);
+                    impl_->handle_mutex, std::defer_lock);
 
             if (!is_same_thread()) {
                 lock.lock();
@@ -370,7 +394,7 @@ namespace futoin {
         {
             HandleAccessor ha(h);
             std::unique_lock<std::mutex> lock(
-                    impl_->exec_mutex, std::defer_lock);
+                    impl_->handle_mutex, std::defer_lock);
 
             if (!is_same_thread()) {
                 lock.lock();

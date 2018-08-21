@@ -19,7 +19,11 @@
 
 #include <futoin/asyncsteps.hpp>
 
+BOOST_AUTO_TEST_SUITE(common) // NOLINT
+
 BOOST_AUTO_TEST_CASE(add) // NOLINT
 {
     // basic add
 }
+
+BOOST_AUTO_TEST_SUITE_END() // NOLINT
