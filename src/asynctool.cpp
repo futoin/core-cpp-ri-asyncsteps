@@ -31,6 +31,7 @@
 namespace futoin {
     namespace ri {
         using std::chrono::steady_clock;
+        using lock_guard = std::lock_guard<std::mutex>;
 
         constexpr size_t AsyncTool::BURST_COUNT;
 
@@ -68,12 +69,16 @@ namespace futoin {
                         std::terminate();
                     }
 
-                    poke();
+                    {
+                        lock_guard lt(handle_mutex);
+                        poke();
+                    }
+
                     thread->join();
                 }
 
-                std::lock_guard<std::mutex> le(exec_mutex);
-                std::lock_guard<std::mutex> lt(handle_mutex);
+                lock_guard le(exec_mutex);
+                lock_guard lt(handle_mutex);
 
                 for (auto& v : handle_tasks) {
                     v();
@@ -224,16 +229,24 @@ namespace futoin {
 
         void AsyncTool::Impl::process() noexcept
         {
-            std::unique_lock<std::mutex> lock(exec_mutex);
+            std::unique_lock<std::mutex> exec_lock(exec_mutex);
 
-            while (!is_shutdown) {
-                iterate(lock);
+            for (;;) {
+                iterate(exec_lock);
 
-                if (immed_queue.empty()) {
+                std::unique_lock<std::mutex> lock(handle_mutex);
+
+                if (is_shutdown) {
+                    break;
+                }
+
+                if (immed_queue.empty() && handle_tasks.empty()) {
                     if (defer_queue.empty()) {
                         poke_var.wait(lock);
                     } else {
-                        poke_var.wait_until(lock, defer_queue.top()->when);
+                        auto when = defer_queue.top()->when
+                                    + std::chrono::milliseconds(1);
+                        poke_var.wait_until(lock, when);
                     }
                 }
             }
@@ -241,6 +254,13 @@ namespace futoin {
 
         AsyncTool::CycleResult AsyncTool::iterate() noexcept
         {
+            if (!is_same_thread()) {
+                std::cerr << "FATAL: AsyncTool::iterate() must be called from "
+                             "c-tor thread!"
+                          << std::endl;
+                std::terminate();
+            }
+
             std::unique_lock<std::mutex> lock(impl_->exec_mutex);
             impl_->iterate(lock);
 
@@ -251,8 +271,8 @@ namespace futoin {
                     return {false, milliseconds(0)};
                 }
 
-                auto delay =
-                        impl_->defer_queue.top()->when - steady_clock::now();
+                auto delay = impl_->defer_queue.top()->when
+                             - steady_clock::now() + milliseconds(1);
                 return {true, std::chrono::duration_cast<milliseconds>(delay)};
             }
 
@@ -306,7 +326,7 @@ namespace futoin {
 
             // cleanup & requests
             {
-                std::lock_guard<std::mutex> lock(handle_mutex);
+                lock_guard lock(handle_mutex);
 
                 while (!immed_queue.empty()) {
                     auto& h = immed_queue.front();
