@@ -27,18 +27,28 @@ BOOST_AUTO_TEST_SUITE(asynctool) // NOLINT
 
 using futoin::ri::AsyncTool;
 auto external_poke = []() {};
+const std::chrono::milliseconds TEST_DELAY{100}; // NOLINT
 
 BOOST_AUTO_TEST_SUITE(external_loop) // NOLINT
 
-BOOST_AUTO_TEST_CASE(isntance) // NOLINT
+BOOST_AUTO_TEST_CASE(instance) // NOLINT
 {
     AsyncTool at(external_poke);
+}
+
+BOOST_AUTO_TEST_CASE(is_same_thread) // NOLINT
+{
+    AsyncTool at(external_poke);
+
+    BOOST_CHECK(at.is_same_thread());
+
+    std::thread([&]() { BOOST_CHECK(!at.is_same_thread()); }).join();
 }
 
 BOOST_AUTO_TEST_CASE(immediate) // NOLINT
 {
     AsyncTool at(external_poke);
-    bool fired = false;
+    std::atomic_bool fired{false};
     at.immediate([&]() { fired = true; });
 
     BOOST_CHECK_EQUAL(fired, false);
@@ -54,7 +64,7 @@ BOOST_AUTO_TEST_CASE(immediate) // NOLINT
 BOOST_AUTO_TEST_CASE(immediate_order) // NOLINT
 {
     AsyncTool at(external_poke);
-    int val = 0;
+    std::atomic_int val{0};
     at.immediate([&]() { val = 2; });
     at.immediate([&]() { val = val * val; });
 
@@ -67,7 +77,7 @@ BOOST_AUTO_TEST_CASE(immediate_order) // NOLINT
 BOOST_AUTO_TEST_CASE(immediate_cancel) // NOLINT
 {
     AsyncTool at(external_poke);
-    int val = 0;
+    std::atomic_int val{0};
 
     at.immediate([&]() { val = 2; });
     at.immediate([&]() { val = val * val; }).cancel();
@@ -84,6 +94,92 @@ BOOST_AUTO_TEST_CASE(immediate_cancel) // NOLINT
     BOOST_CHECK_EQUAL(val, 9);
 }
 
+BOOST_AUTO_TEST_CASE(defer) // NOLINT
+{
+    AsyncTool at(external_poke);
+    std::atomic_bool fired{false};
+    at.deferred(TEST_DELAY, [&]() { fired = true; });
+
+    BOOST_CHECK_EQUAL(fired, false);
+    auto res1 = at.iterate();
+
+    BOOST_CHECK_EQUAL(fired, false);
+    BOOST_CHECK_EQUAL(res1.have_work, true);
+    BOOST_CHECK_LE(res1.delay.count(), TEST_DELAY.count());
+    BOOST_CHECK_GT(res1.delay.count(), TEST_DELAY.count() / 2);
+
+    std::this_thread::sleep_for(res1.delay);
+    auto res2 = at.iterate();
+
+    BOOST_CHECK_EQUAL(fired, true);
+    BOOST_CHECK_EQUAL(res2.have_work, false);
+
+    BOOST_CHECK_EQUAL(at.iterate().have_work, false);
+}
+
+BOOST_AUTO_TEST_CASE(defer_order) // NOLINT
+{
+    AsyncTool at(external_poke);
+    std::atomic_bool fired1{false};
+    std::atomic_bool fired2{false};
+    at.deferred(TEST_DELAY * 2, [&]() { fired1 = true; });
+    at.deferred(TEST_DELAY, [&]() { fired2 = true; });
+
+    BOOST_CHECK_EQUAL(fired1, false);
+    auto res1 = at.iterate();
+
+    BOOST_CHECK_EQUAL(fired1, false);
+    BOOST_CHECK_EQUAL(fired2, false);
+    BOOST_CHECK_EQUAL(res1.have_work, true);
+
+    std::this_thread::sleep_for(res1.delay);
+    auto res2 = at.iterate();
+
+    BOOST_CHECK_EQUAL(fired1, false);
+    BOOST_CHECK_EQUAL(fired2, true);
+    BOOST_CHECK_EQUAL(res2.have_work, true);
+
+    std::this_thread::sleep_for(res2.delay);
+    auto res3 = at.iterate();
+
+    BOOST_CHECK_EQUAL(fired1, true);
+    BOOST_CHECK_EQUAL(res3.have_work, false);
+    BOOST_CHECK_EQUAL(res3.delay.count(), 0);
+}
+
+BOOST_AUTO_TEST_CASE(defer_cancel) // NOLINT
+{
+    AsyncTool at(external_poke);
+    std::atomic_bool fired1{false};
+    std::atomic_bool fired2{false};
+    at.deferred(TEST_DELAY * 2, [&]() { fired1 = true; });
+    auto handle = at.deferred(TEST_DELAY, [&]() { fired2 = true; });
+
+    BOOST_CHECK_EQUAL(fired1, false);
+    auto res1 = at.iterate();
+
+    BOOST_CHECK_EQUAL(fired1, false);
+    BOOST_CHECK_EQUAL(fired2, false);
+    BOOST_CHECK_EQUAL(res1.have_work, true);
+
+    handle.cancel();
+
+    std::this_thread::sleep_for(res1.delay);
+    auto res2 = at.iterate();
+
+    BOOST_CHECK_EQUAL(fired1, false);
+    BOOST_CHECK_EQUAL(fired2, false);
+    BOOST_CHECK_EQUAL(res2.have_work, true);
+
+    std::this_thread::sleep_for(res2.delay);
+    auto res3 = at.iterate();
+
+    BOOST_CHECK_EQUAL(fired1, true);
+    BOOST_CHECK_EQUAL(fired2, false);
+    BOOST_CHECK_EQUAL(res3.have_work, false);
+    BOOST_CHECK_EQUAL(res3.delay.count(), 0);
+}
+
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
 
 //=============================================================================
@@ -93,6 +189,21 @@ BOOST_AUTO_TEST_SUITE(internal_loop) // NOLINT
 BOOST_AUTO_TEST_CASE(instance) // NOLINT
 {
     AsyncTool at;
+}
+
+BOOST_AUTO_TEST_CASE(is_same_thread) // NOLINT
+{
+    AsyncTool at;
+
+    BOOST_CHECK(!at.is_same_thread());
+
+    std::promise<void> fired;
+    at.immediate([&]() {
+        BOOST_CHECK(at.is_same_thread());
+        fired.set_value();
+    });
+
+    fired.get_future().wait();
 }
 
 BOOST_AUTO_TEST_CASE(immediate) // NOLINT
@@ -110,9 +221,13 @@ BOOST_AUTO_TEST_CASE(immediate) // NOLINT
 BOOST_AUTO_TEST_CASE(immediate_order) // NOLINT
 {
     AsyncTool at;
+
+    // start from waiting state
+    std::this_thread::sleep_for(TEST_DELAY);
+
     std::promise<void> fired;
 
-    int val = 0;
+    std::atomic_int val{0};
     at.immediate([&]() { val = 2; });
     at.immediate([&]() { val = val * val; });
     at.immediate([&]() { fired.set_value(); });
@@ -125,8 +240,8 @@ BOOST_AUTO_TEST_CASE(immediate_cancel) // NOLINT
 {
     AsyncTool at;
 
-    int val = 0;
-    int fired = 0;
+    std::atomic_int val{0};
+    std::atomic_int fired{0};
     AsyncTool::Handle handle;
 
     std::promise<void> ready_to_cancel;
@@ -170,7 +285,155 @@ BOOST_AUTO_TEST_CASE(immediate_cancel) // NOLINT
     BOOST_CHECK_EQUAL(fired, 1 + AsyncTool::BURST_COUNT - 2 + 2);
 }
 
+BOOST_AUTO_TEST_CASE(defer) // NOLINT
+{
+    AsyncTool at;
+    std::atomic_bool fired{false};
+    at.deferred(TEST_DELAY, [&]() { fired = true; });
+
+    BOOST_CHECK_EQUAL(fired, false);
+
+    std::this_thread::sleep_for(TEST_DELAY * 1.5);
+
+    BOOST_CHECK_EQUAL(fired, true);
+}
+
+BOOST_AUTO_TEST_CASE(defer_order) // NOLINT
+{
+    AsyncTool at;
+    std::atomic_bool fired1{false};
+    std::atomic_bool fired2{false};
+    at.deferred(TEST_DELAY * 2, [&]() { fired1 = true; });
+    at.deferred(TEST_DELAY, [&]() { fired2 = true; });
+
+    BOOST_CHECK_EQUAL(fired1, false);
+    BOOST_CHECK_EQUAL(fired2, false);
+
+    std::this_thread::sleep_for(TEST_DELAY * 1.1);
+
+    BOOST_CHECK_EQUAL(fired1, false);
+    BOOST_CHECK_EQUAL(fired2, true);
+
+    std::this_thread::sleep_for(TEST_DELAY * 1.1);
+
+    BOOST_CHECK_EQUAL(fired1, true);
+}
+
+BOOST_AUTO_TEST_CASE(defer_cancel) // NOLINT
+{
+    AsyncTool at;
+    std::atomic_bool fired1{false};
+    std::atomic_bool fired2{false};
+    at.deferred(TEST_DELAY * 2, [&]() { fired1 = true; });
+    auto handle = at.deferred(TEST_DELAY, [&]() { fired2 = true; });
+
+    BOOST_CHECK_EQUAL(fired1, false);
+    BOOST_CHECK_EQUAL(fired2, false);
+
+    handle.cancel();
+
+    std::this_thread::sleep_for(TEST_DELAY * 1.1);
+
+    BOOST_CHECK_EQUAL(fired1, false);
+    BOOST_CHECK_EQUAL(fired2, false);
+
+    std::this_thread::sleep_for(TEST_DELAY * 1.1);
+
+    BOOST_CHECK_EQUAL(fired1, true);
+    BOOST_CHECK_EQUAL(fired2, false);
+}
+
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
+
+//=============================================================================
+
+BOOST_AUTO_TEST_CASE(spi) // NOLINT
+{
+    AsyncTool at;
+
+    struct StepEmu
+    {
+        AsyncTool& at;
+        AsyncTool::Handle handle;
+        AsyncTool::Handle limit;
+        volatile size_t count = 0;
+
+        StepEmu(AsyncTool& at) : at(at) {}
+
+        void start()
+        {
+            (*this)();
+        }
+
+        void stop()
+        {
+            handle.cancel();
+            limit.cancel();
+        }
+
+        void operator()() noexcept
+        {
+            ++count;
+            handle = at.immediate(std::ref(*this));
+
+            if (count % 30 == 0) {
+                limit.cancel();
+                limit = at.deferred(std::chrono::seconds(30), []() {});
+            }
+        }
+    };
+
+    StepEmu step_emu1{at};
+    StepEmu step_emu2{at};
+    StepEmu step_emu3{at};
+
+    auto print_stats = [&]() {
+        auto stats = at.stats();
+
+        std::cout << "Step iterations: " << std::endl
+                  << " 1=" << step_emu1.count << std::endl
+                  << " 2=" << step_emu2.count << std::endl
+                  << " 3=" << step_emu3.count << std::endl;
+
+        std::cout << "Stats: " << std::endl
+                  << " immediate_count=" << stats.immediate_count << std::endl
+                  << " deferred_used=" << stats.deferred_used << std::endl
+                  << " deferred_free=" << stats.deferred_free << std::endl
+                  << " handle_task_count=" << stats.handle_task_count
+                  << std::endl;
+        BOOST_CHECK_LE(stats.immediate_count, 6);
+        BOOST_CHECK_LE(stats.deferred_used + stats.deferred_free, 18);
+        BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
+    };
+
+    std::promise<void> done;
+
+    at.immediate([&]() {
+        // NOTE: due to unfair std::mutex scheduling, we need to do it this way
+        //       from internal loop thread.
+        step_emu1.start();
+        step_emu2.start();
+        step_emu3.start();
+
+        at.deferred(std::chrono::seconds(1), [&]() {
+            print_stats();
+            at.shrink_to_fit();
+        });
+
+        at.deferred(std::chrono::seconds(2), [&]() {
+            print_stats();
+            step_emu1.stop();
+            step_emu2.stop();
+            step_emu3.stop();
+            done.set_value();
+        });
+    });
+
+    done.get_future().wait();
+    BOOST_CHECK_GT(step_emu1.count, 1e4);
+    BOOST_CHECK_GT(step_emu2.count, 1e4);
+    BOOST_CHECK_GT(step_emu3.count, 1e4);
+}
 
 //=============================================================================
 

@@ -57,6 +57,17 @@ namespace futoin {
             bool is_same_thread() noexcept override;
             CycleResult iterate() noexcept;
 
+            struct Stats
+            {
+                size_t immediate_count;
+                size_t deferred_used;
+                size_t deferred_free;
+                size_t handle_task_count;
+            };
+
+            Stats stats() noexcept;
+            void shrink_to_fit() noexcept;
+
         protected:
             void cancel(Handle& h) noexcept override;
             void move(Handle& src, Handle& dst) noexcept override;

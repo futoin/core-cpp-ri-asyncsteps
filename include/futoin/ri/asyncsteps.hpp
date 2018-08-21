@@ -34,6 +34,7 @@ namespace futoin {
         {
         protected:
             struct HandleAccessor;
+            struct InternalHandle;
 
         public:
             IAsyncTool() = default;
@@ -44,18 +45,6 @@ namespace futoin {
             virtual ~IAsyncTool() noexcept = default;
 
             using Callback = std::function<void()>;
-            class Handle;
-
-            struct InternalHandle
-            {
-                InternalHandle(Callback&& cb) :
-                    callback(std::forward<Callback>(cb))
-                {}
-
-                Callback callback;
-                Handle* outer = nullptr;
-            };
-
             /**
              * @brief Handle to scheduled callback
              */
@@ -119,6 +108,7 @@ namespace futoin {
                 }
 
             private:
+                friend struct IAsyncTool::InternalHandle;
                 friend struct IAsyncTool::HandleAccessor;
 
                 InternalHandle* internal_ = nullptr;
@@ -173,6 +163,52 @@ namespace futoin {
 
                 InternalHandle*& internal_;
                 IAsyncTool*& async_tool_;
+            };
+
+            struct InternalHandle
+            {
+                InternalHandle(Callback&& cb) :
+                    callback(std::forward<Callback>(cb))
+                {}
+
+                InternalHandle(InternalHandle&& other) noexcept :
+                    callback(std::move(other.callback)), outer(other.outer)
+                {
+                    other.callback = Callback();
+
+                    if (outer != nullptr) {
+                        other.outer = nullptr;
+
+                        if (outer->internal_ != nullptr) {
+                            outer->internal_ = this;
+                        }
+                    }
+                }
+
+                InternalHandle& operator=(InternalHandle&& other) noexcept
+                {
+                    if (&other != this) {
+                        callback = std::move(other.callback);
+                        other.callback = Callback();
+                        outer = other.outer;
+
+                        if (outer != nullptr) {
+                            other.outer = nullptr;
+
+                            if (outer->internal_ != nullptr) {
+                                outer->internal_ = this;
+                            }
+                        }
+                    }
+
+                    return *this;
+                }
+
+                InternalHandle(const InternalHandle& other) = delete;
+                InternalHandle& operator=(const InternalHandle& other) = delete;
+
+                Callback callback;
+                Handle* outer = nullptr;
             };
 
             virtual void cancel(Handle& h) noexcept = 0;

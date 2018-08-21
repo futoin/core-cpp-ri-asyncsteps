@@ -120,13 +120,14 @@ namespace futoin {
             using DeferredHeap = std::list<DeferredHandle>;
             DeferredHeap defer_used_heap;
             DeferredHeap defer_free_heap;
+            size_t canceled_handles{0};
 
             using DeferredQueueItem = DeferredHeap::iterator;
-            std::priority_queue<
+            using DeferredPriorityQueue = std::priority_queue<
                     DeferredQueueItem,
                     std::vector<DeferredQueueItem>,
-                    DeferredCompare<DeferredQueueItem>>
-                    defer_queue;
+                    DeferredCompare<DeferredQueueItem>>;
+            DeferredPriorityQueue defer_queue;
 
             //---
             std::condition_variable poke_var;
@@ -282,6 +283,8 @@ namespace futoin {
         void AsyncTool::Impl::iterate(
                 std::unique_lock<std::mutex>& /*exec_lock*/) noexcept
         {
+            size_t immed_to_remove = 0;
+
             // process immediates
             {
                 auto immed_iter = immed_queue.begin();
@@ -294,8 +297,11 @@ namespace futoin {
 
                     if (cb) {
                         cb();
-                        cb = Callback();
+                    } else {
+                        --canceled_handles;
                     }
+
+                    ++immed_to_remove;
                 }
             }
 
@@ -315,7 +321,8 @@ namespace futoin {
 
                 if (cb) {
                     cb();
-                    cb = Callback();
+                } else {
+                    --canceled_handles;
                 }
 
                 defer_just_freed.splice(
@@ -328,21 +335,17 @@ namespace futoin {
             {
                 lock_guard lock(handle_mutex);
 
-                while (!immed_queue.empty()) {
+                for (size_t i = immed_to_remove; i > 0; --i) {
                     auto& h = immed_queue.front();
 
-                    if (!h.callback) {
-                        auto outer = h.outer;
+                    auto outer = h.outer;
 
-                        if (outer != nullptr) {
-                            HandleAccessor(*outer).internal_ = nullptr;
-                            h.outer = nullptr;
-                        }
-
-                        immed_queue.pop_front();
-                    } else {
-                        break;
+                    if (outer != nullptr) {
+                        HandleAccessor(*outer).internal_ = nullptr;
+                        h.outer = nullptr;
                     }
+
+                    immed_queue.pop_front();
                 }
 
                 while (!defer_just_freed.empty()) {
@@ -357,6 +360,29 @@ namespace futoin {
 
                     defer_free_heap.splice(
                             defer_free_heap.begin(), defer_just_freed, h_it);
+                }
+
+                // TODO: temporary workaround -> use heap on list instead
+                if (canceled_handles > (defer_used_heap.size() / 2)) {
+                    auto iter = defer_used_heap.begin();
+                    const auto end = defer_used_heap.end();
+
+                    defer_queue = DeferredPriorityQueue();
+
+                    while (iter != end) {
+                        if (iter->callback) {
+                            defer_queue.push(iter);
+                            ++iter;
+                        } else {
+                            --canceled_handles;
+                            auto to_move = iter;
+                            ++iter;
+                            defer_free_heap.splice(
+                                    defer_free_heap.begin(),
+                                    defer_used_heap,
+                                    to_move);
+                        }
+                    }
                 }
 
                 while (!handle_tasks.empty()) {
@@ -384,6 +410,8 @@ namespace futoin {
             internal->callback = Callback();
             internal->outer = nullptr;
             ha.internal_ = nullptr;
+
+            ++(impl_->canceled_handles);
         }
 
         void AsyncTool::move(Handle& src, Handle& dst) noexcept
@@ -426,6 +454,41 @@ namespace futoin {
 
             ha.internal_->outer = nullptr;
             ha.internal_ = nullptr;
+        }
+
+        AsyncTool::Stats AsyncTool::stats() noexcept
+        {
+            lock_guard lock(impl_->handle_mutex);
+
+            return {
+                    impl_->immed_queue.size(),
+                    impl_->defer_used_heap.size(),
+                    impl_->defer_free_heap.size(),
+                    impl_->handle_tasks.size(),
+            };
+        }
+
+        void AsyncTool::shrink_to_fit() noexcept
+        {
+            if (!is_same_thread()) {
+                Impl::HandleTask task([this]() {
+                    this->shrink_to_fit();
+                    return Handle();
+                });
+                auto res = task.get_future();
+
+                {
+                    std::lock_guard<std::mutex> lock(impl_->handle_mutex);
+                    impl_->handle_tasks.emplace_back(std::move(task));
+                }
+
+                impl_->poke();
+                res.wait();
+            } else {
+                impl_->immed_queue.shrink_to_fit();
+                impl_->handle_tasks.shrink_to_fit();
+                impl_->defer_free_heap.clear();
+            }
         }
     } // namespace ri
 } // namespace futoin
