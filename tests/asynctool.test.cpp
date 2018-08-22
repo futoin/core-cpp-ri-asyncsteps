@@ -20,6 +20,7 @@
 #include <futoin/ri/asynctool.hpp>
 
 #include <future>
+#include <list>
 
 BOOST_AUTO_TEST_SUITE(asynctool) // NOLINT
 
@@ -348,41 +349,44 @@ BOOST_AUTO_TEST_SUITE_END() // NOLINT
 
 //=============================================================================
 
-BOOST_AUTO_TEST_CASE(spi) // NOLINT
+BOOST_AUTO_TEST_SUITE(spi) // NOLINT
+
+struct StepEmu
+{
+    AsyncTool& at;
+    AsyncTool::Handle handle;
+    AsyncTool::Handle limit;
+    volatile size_t count = 0;
+
+    StepEmu(AsyncTool& at) : at(at) {}
+
+    void start()
+    {
+        (*this)();
+    }
+
+    void stop()
+    {
+        handle.cancel();
+        limit.cancel();
+    }
+
+    void operator()() noexcept
+    {
+        handle = at.immediate(std::ref(*this));
+
+        if (count % 10 == 0) {
+            limit.cancel();
+            limit = at.deferred(std::chrono::seconds(30), []() {});
+        }
+
+        ++count;
+    }
+};
+
+BOOST_AUTO_TEST_CASE(performance) // NOLINT
 {
     AsyncTool at;
-
-    struct StepEmu
-    {
-        AsyncTool& at;
-        AsyncTool::Handle handle;
-        AsyncTool::Handle limit;
-        volatile size_t count = 0;
-
-        StepEmu(AsyncTool& at) : at(at) {}
-
-        void start()
-        {
-            (*this)();
-        }
-
-        void stop()
-        {
-            handle.cancel();
-            limit.cancel();
-        }
-
-        void operator()() noexcept
-        {
-            ++count;
-            handle = at.immediate(std::ref(*this));
-
-            if (count % 30 == 0) {
-                limit.cancel();
-                limit = at.deferred(std::chrono::seconds(30), []() {});
-            }
-        }
-    };
 
     StepEmu step_emu1{at};
     StepEmu step_emu2{at};
@@ -435,6 +439,69 @@ BOOST_AUTO_TEST_CASE(spi) // NOLINT
     BOOST_CHECK_GT(step_emu2.count, 1e4);
     BOOST_CHECK_GT(step_emu3.count, 1e4);
 }
+
+BOOST_AUTO_TEST_CASE(stress) // NOLINT
+{
+    AsyncTool at;
+
+    constexpr size_t STEP_COUNT = 1e5;
+    std::list<StepEmu> steps;
+
+    for (size_t c = STEP_COUNT; c > 0; --c) {
+        steps.emplace_back(at);
+    }
+
+    auto print_stats = [&]() {
+        auto stats = at.stats();
+        size_t iterations = 0;
+
+        for (auto& v : steps) {
+            iterations += v.count;
+        }
+
+        std::cout << "Step iterations: " << iterations << std::endl;
+
+        std::cout << "Stats: " << std::endl
+                  << " immediate_count=" << stats.immediate_count << std::endl
+                  << " deferred_used=" << stats.deferred_used << std::endl
+                  << " deferred_free=" << stats.deferred_free << std::endl
+                  << " handle_task_count=" << stats.handle_task_count
+                  << std::endl;
+
+        BOOST_CHECK_GT(iterations, 1e4);
+        BOOST_CHECK_LE(stats.immediate_count, STEP_COUNT * 2);
+        BOOST_CHECK_LE(
+                stats.deferred_used + stats.deferred_free, STEP_COUNT * 3);
+        BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
+    };
+
+    std::promise<void> done;
+
+    at.immediate([&]() {
+        // NOTE: due to unfair std::mutex scheduling, we need to do it this way
+        //       from internal loop thread.
+        for (auto& v : steps) {
+            v.start();
+        }
+
+        at.deferred(std::chrono::seconds(1), [&]() {
+            print_stats();
+            at.shrink_to_fit();
+        });
+
+        at.deferred(std::chrono::seconds(2), [&]() {
+            print_stats();
+            for (auto& v : steps) {
+                v.stop();
+            }
+            done.set_value();
+        });
+    });
+
+    done.get_future().wait();
+}
+
+BOOST_AUTO_TEST_SUITE_END() // NOLINT
 
 //=============================================================================
 

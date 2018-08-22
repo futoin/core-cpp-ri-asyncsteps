@@ -29,6 +29,7 @@
 #include <thread>
 //---
 #include <boost/lockfree/spsc_queue.hpp>
+#include <boost/pool/pool_alloc.hpp>
 
 namespace futoin {
     namespace ri {
@@ -147,7 +148,9 @@ namespace futoin {
             HandleCookie current_cookie{1};
             std::deque<ImmediateHandle> immed_queue;
 
-            using DeferredHeap = std::list<DeferredHandle>;
+            using DeferredAllocator =
+                    boost::fast_pool_allocator<DeferredHandle>;
+            using DeferredHeap = std::list<DeferredHandle, DeferredAllocator>;
             DeferredHeap defer_used_heap;
             DeferredHeap defer_free_heap;
             size_t canceled_handles{0};
@@ -164,7 +167,6 @@ namespace futoin {
 
             //---
             std::mutex handle_mutex;
-            // std::deque<HandleTask> handle_tasks;
             boost::lockfree::spsc_queue<
                     HandleTask*,
                     boost::lockfree::capacity<BURST_COUNT * 10>>
