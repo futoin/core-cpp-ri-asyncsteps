@@ -269,6 +269,7 @@ BOOST_AUTO_TEST_CASE(immediate_cancel) // NOLINT
         });
 
         ready_to_cancel.set_value();
+        std::this_thread::sleep_for(TEST_DELAY);
 
         at.immediate([&]() {
             ++fired;

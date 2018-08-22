@@ -32,9 +32,38 @@ namespace futoin {
          */
         class IAsyncTool
         {
+        public:
+            using Callback = std::function<void()>;
+            using HandleCookie = std::ptrdiff_t;
+
         protected:
             struct HandleAccessor;
-            struct InternalHandle;
+            struct InternalHandle
+            {
+                InternalHandle(Callback&& cb) :
+                    callback(std::forward<Callback>(cb))
+                {}
+
+                // InternalHandle(InternalHandle&& other) noexcept = default;
+                // InternalHandle& operator=(InternalHandle&& other) noexcept =
+                // default;
+                InternalHandle(InternalHandle&& other) noexcept :
+                    callback(std::move(other.callback))
+                {}
+                InternalHandle& operator=(InternalHandle&& other) noexcept
+                {
+                    if (this != &other) {
+                        callback = std::move(other.callback);
+                    }
+
+                    return *this;
+                }
+
+                InternalHandle(const InternalHandle& other) = delete;
+                InternalHandle& operator=(const InternalHandle& other) = delete;
+
+                Callback callback;
+            };
 
         public:
             IAsyncTool() = default;
@@ -44,75 +73,49 @@ namespace futoin {
             IAsyncTool& operator=(const IAsyncTool&&) = delete;
             virtual ~IAsyncTool() noexcept = default;
 
-            using Callback = std::function<void()>;
             /**
              * @brief Handle to scheduled callback
              */
             class Handle
             {
             public:
+                Handle(InternalHandle& internal,
+                       IAsyncTool& async_tool,
+                       HandleCookie cookie) noexcept :
+                    internal_(&internal),
+                    async_tool_(&async_tool), cookie_(cookie)
+                {}
+
                 Handle() = default;
+
                 Handle(const Handle&) = delete;
                 Handle& operator=(const Handle&) = delete;
 
-                Handle(InternalHandle& internal,
-                       IAsyncTool& async_tool) noexcept :
-                    internal_(&internal),
-                    async_tool_(&async_tool)
-                {
-                    internal.outer = this;
-                }
+                Handle(Handle&& other) noexcept = default;
+                Handle& operator=(Handle&& other) noexcept = default;
 
-                Handle(Handle&& other) noexcept : internal_(other.internal_)
-                {
-                    if (other.async_tool_ != nullptr) {
-                        other.async_tool_->move(other, *this);
-                    }
-                }
-
-                ~Handle() noexcept
-                {
-                    if (internal_ != nullptr) {
-                        async_tool_->free(*this);
-                    }
-                }
-
-                Handle& operator=(Handle&& other) noexcept
-                {
-                    if (&other != this) {
-                        if (other.async_tool_ != nullptr) {
-                            if (internal_ != nullptr) {
-                                async_tool_->free(*this);
-                            }
-
-                            other.async_tool_->move(other, *this);
-                        } else {
-                            cancel();
-                        }
-                    }
-
-                    return *this;
-                }
+                ~Handle() noexcept = default;
 
                 void cancel() noexcept
                 {
                     if (internal_ != nullptr) {
                         async_tool_->cancel(*this);
-                        internal_ = nullptr;
                     }
                 }
 
                 operator bool() const noexcept
                 {
-                    return internal_ != nullptr;
+                    return (internal_ != nullptr)
+                           && async_tool_->is_valid(*const_cast<Handle*>(this));
                 }
 
             private:
                 friend struct IAsyncTool::InternalHandle;
                 friend struct IAsyncTool::HandleAccessor;
 
-                InternalHandle* internal_ = nullptr;
-                IAsyncTool* async_tool_ = nullptr;
+                InternalHandle* internal_{nullptr};
+                IAsyncTool* async_tool_{nullptr};
+                HandleCookie cookie_{0};
             };
 
             /**
@@ -157,63 +160,28 @@ namespace futoin {
         protected:
             struct HandleAccessor
             {
-                HandleAccessor(Handle& h) :
-                    internal_(h.internal_), async_tool_(h.async_tool_)
-                {}
+                HandleAccessor(Handle& handle) : handle(handle) {}
 
-                InternalHandle*& internal_;
-                IAsyncTool*& async_tool_;
-            };
+                Handle& handle;
 
-            struct InternalHandle
-            {
-                InternalHandle(Callback&& cb) :
-                    callback(std::forward<Callback>(cb))
-                {}
-
-                InternalHandle(InternalHandle&& other) noexcept :
-                    callback(std::move(other.callback)), outer(other.outer)
+                InternalHandle*& internal()
                 {
-                    other.callback = Callback();
-
-                    if (outer != nullptr) {
-                        other.outer = nullptr;
-
-                        if (outer->internal_ != nullptr) {
-                            outer->internal_ = this;
-                        }
-                    }
+                    return handle.internal_;
                 }
 
-                InternalHandle& operator=(InternalHandle&& other) noexcept
+                IAsyncTool*& async_tool()
                 {
-                    if (&other != this) {
-                        callback = std::move(other.callback);
-                        other.callback = Callback();
-                        outer = other.outer;
-
-                        if (outer != nullptr) {
-                            other.outer = nullptr;
-
-                            if (outer->internal_ != nullptr) {
-                                outer->internal_ = this;
-                            }
-                        }
-                    }
-
-                    return *this;
+                    return handle.async_tool_;
                 }
 
-                InternalHandle(const InternalHandle& other) = delete;
-                InternalHandle& operator=(const InternalHandle& other) = delete;
-
-                Callback callback;
-                Handle* outer = nullptr;
+                HandleCookie& cookie()
+                {
+                    return handle.cookie_;
+                }
             };
 
             virtual void cancel(Handle& h) noexcept = 0;
-            virtual void move(Handle& src, Handle& dst) noexcept = 0;
-            virtual void free(Handle& h) noexcept = 0;
+            virtual bool is_valid(Handle& h) noexcept = 0;
         };
 
         /**

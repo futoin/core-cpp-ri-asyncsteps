@@ -27,6 +27,8 @@
 #include <future>
 #include <mutex>
 #include <thread>
+//---
+#include <boost/lockfree/spsc_queue.hpp>
 
 namespace futoin {
     namespace ri {
@@ -37,13 +39,33 @@ namespace futoin {
 
         struct AsyncTool::Impl
         {
-            using ImmediateHandle = InternalHandle;
+            struct ImmediateHandle : InternalHandle
+            {
+                ImmediateHandle(Callback&& cb, HandleCookie cookie) noexcept :
+                    InternalHandle(std::forward<Callback>(cb)), cookie(cookie)
+                {}
+
+                ImmediateHandle(ImmediateHandle&& other) noexcept = default;
+                ImmediateHandle& operator=(ImmediateHandle&& other) noexcept =
+                        default;
+
+                ~ImmediateHandle() noexcept = default;
+
+                HandleCookie cookie;
+            };
 
             struct DeferredHandle : ImmediateHandle
             {
-                DeferredHandle(Callback&& cb, steady_clock::time_point when) :
-                    ImmediateHandle(std::forward<Callback>(cb)), when(when)
+                DeferredHandle(
+                        Callback&& cb,
+                        HandleCookie cookie,
+                        steady_clock::time_point when) :
+                    ImmediateHandle(std::forward<Callback>(cb), cookie),
+                    when(when)
                 {}
+
+                DeferredHandle(DeferredHandle&&) noexcept = default;
+                DeferredHandle& operator=(DeferredHandle&&) noexcept = default;
 
                 steady_clock::time_point when;
             };
@@ -56,6 +78,8 @@ namespace futoin {
                     return a->when > b->when;
                 }
             };
+
+            using HandleTask = std::function<void()>;
 
             Impl() : is_shutdown(false) {}
 
@@ -77,30 +101,7 @@ namespace futoin {
                     thread->join();
                 }
 
-                lock_guard le(exec_mutex);
-                lock_guard lt(handle_mutex);
-
-                for (auto& v : handle_tasks) {
-                    v();
-                }
-
-                for (auto& v : immed_queue) {
-                    v.callback = Callback();
-
-                    if (v.outer != nullptr) {
-                        HandleAccessor(*(v.outer)).internal_ = nullptr;
-                        v.outer = nullptr;
-                    }
-                }
-
-                for (auto& v : defer_used_heap) {
-                    v.callback = Callback();
-
-                    if (v.outer != nullptr) {
-                        HandleAccessor(*(v.outer)).internal_ = nullptr;
-                        v.outer = nullptr;
-                    }
-                }
+                handle_task_queue();
             }
 
             void poke() noexcept
@@ -109,12 +110,41 @@ namespace futoin {
             }
 
             void process() noexcept;
-            void iterate(std::unique_lock<std::mutex>& exec_lock) noexcept;
+            void iterate() noexcept;
+
+            HandleCookie get_cookie() noexcept
+            {
+                auto cookie = ++current_cookie;
+
+                if (cookie == 0) {
+                    cookie = ++current_cookie;
+                }
+
+                return cookie;
+            }
+
+            void handle_task_queue()
+            {
+                // Process external requests
+                while (handle_tasks.read_available() != 0) {
+                    handle_tasks.front()->operator()();
+                    handle_tasks.pop();
+                }
+            }
+
+            void add_handle_task(HandleTask& task)
+            {
+                for (bool done = false; !done;) {
+                    std::lock_guard<std::mutex> lock(handle_mutex);
+                    done = handle_tasks.push(&task);
+                    poke();
+                }
+            }
 
             //---
-            std::mutex exec_mutex;
+            std::deque<Callback> burst_queue;
 
-            //---
+            HandleCookie current_cookie{1};
             std::deque<ImmediateHandle> immed_queue;
 
             using DeferredHeap = std::list<DeferredHandle>;
@@ -134,8 +164,11 @@ namespace futoin {
 
             //---
             std::mutex handle_mutex;
-            using HandleTask = std::packaged_task<Handle()>;
-            std::deque<HandleTask> handle_tasks;
+            // std::deque<HandleTask> handle_tasks;
+            boost::lockfree::spsc_queue<
+                    HandleTask*,
+                    boost::lockfree::capacity<BURST_COUNT * 10>>
+                    handle_tasks;
 
             //---
             std::atomic_bool is_shutdown{false};
@@ -165,41 +198,45 @@ namespace futoin {
         AsyncTool::Handle AsyncTool::immediate(Callback&& cb) noexcept
         {
             if (!AsyncTool::is_same_thread()) {
-                Impl::HandleTask task([this, &cb]() {
-                    return this->immediate(std::forward<Callback>(cb));
-                });
-                auto res = task.get_future();
+                std::promise<AsyncTool::Handle> res;
+                Impl::HandleTask task = [this, &res, &cb]() {
+                    res.set_value(this->immediate(std::forward<Callback>(cb)));
+                };
 
-                {
-                    std::lock_guard<std::mutex> lock(impl_->handle_mutex);
-                    impl_->handle_tasks.emplace_back(std::move(task));
-                }
-
-                impl_->poke();
-                return res.get();
+                impl_->add_handle_task(task);
+                return res.get_future().get();
             }
 
+            auto cookie = impl_->get_cookie();
+
             auto& q = impl_->immed_queue;
-            q.emplace_back(std::forward<Callback>(cb));
-            return {q.back(), *this};
+            q.emplace_back(std::forward<Callback>(cb), cookie);
+            auto& iq = q.back();
+            return {iq, *this, cookie};
         }
 
         AsyncTool::Handle AsyncTool::deferred(
                 std::chrono::milliseconds delay, Callback&& cb) noexcept
         {
             if (!AsyncTool::is_same_thread()) {
-                Impl::HandleTask task([this, delay, &cb]() {
-                    return this->deferred(delay, std::forward<Callback>(cb));
-                });
-                auto res = task.get_future();
+                std::promise<AsyncTool::Handle> res;
+                Impl::HandleTask task = [this, &res, &cb, delay]() {
+                    res.set_value(
+                            this->deferred(delay, std::forward<Callback>(cb)));
+                };
 
-                {
-                    std::lock_guard<std::mutex> lock(impl_->handle_mutex);
-                    impl_->handle_tasks.emplace_back(std::move(task));
-                }
+                impl_->add_handle_task(task);
+                return res.get_future().get();
+            }
 
-                impl_->poke();
-                return res.get();
+            if (delay < std::chrono::milliseconds(100)) {
+                std::cerr << "FATAL: deferred AsyncTool calls are designed for "
+                             "timeouts!"
+                          << std::endl
+                          << "       Avoid using it for too short delays "
+                             "(<100ms)."
+                          << std::endl;
+                std::terminate();
             }
 
             auto when = steady_clock::now() + delay;
@@ -209,18 +246,23 @@ namespace futoin {
             auto& q = impl_->defer_queue;
 
             Impl::DeferredQueueItem it;
+            auto cookie = impl_->get_cookie();
 
             if (free_heap.empty()) {
-                used_heap.emplace_front(std::forward<Callback>(cb), when);
+                used_heap.emplace_front(
+                        std::forward<Callback>(cb), cookie, when);
                 it = used_heap.begin();
             } else {
                 it = free_heap.begin();
-                *it = Impl::DeferredHandle(std::forward<Callback>(cb), when);
+                *it = Impl::DeferredHandle(
+                        std::forward<Callback>(cb), cookie, when);
                 used_heap.splice(used_heap.begin(), free_heap, it);
             }
 
             q.push(it);
-            return {*it, *this};
+
+            auto& iq = *it;
+            return {iq, *this, cookie};
         }
 
         bool AsyncTool::is_same_thread() noexcept
@@ -230,18 +272,16 @@ namespace futoin {
 
         void AsyncTool::Impl::process() noexcept
         {
-            std::unique_lock<std::mutex> exec_lock(exec_mutex);
-
-            for (;;) {
-                iterate(exec_lock);
-
-                std::unique_lock<std::mutex> lock(handle_mutex);
-
-                if (is_shutdown) {
-                    break;
-                }
+            while (!is_shutdown) {
+                iterate();
 
                 if (immed_queue.empty() && handle_tasks.empty()) {
+                    std::unique_lock<std::mutex> lock(handle_mutex);
+
+                    if (is_shutdown) {
+                        break;
+                    }
+
                     if (defer_queue.empty()) {
                         poke_var.wait(lock);
                     } else {
@@ -262,8 +302,7 @@ namespace futoin {
                 std::terminate();
             }
 
-            std::unique_lock<std::mutex> lock(impl_->exec_mutex);
-            impl_->iterate(lock);
+            impl_->iterate();
 
             using std::chrono::milliseconds;
 
@@ -280,214 +319,151 @@ namespace futoin {
             return {true, milliseconds(0)};
         }
 
-        void AsyncTool::Impl::iterate(
-                std::unique_lock<std::mutex>& /*exec_lock*/) noexcept
+        void AsyncTool::Impl::iterate() noexcept
         {
-            size_t immed_to_remove = 0;
-
             // process immediates
-            {
-                auto immed_iter = immed_queue.begin();
-                const auto immed_end = (immed_queue.size() < BURST_COUNT)
-                                               ? immed_queue.end()
-                                               : immed_iter + BURST_COUNT;
+            for (size_t i = BURST_COUNT; (i > 0) && !immed_queue.empty(); --i) {
+                auto& ih = immed_queue.front();
+                auto& cookie = ih.cookie;
 
-                for (; immed_iter != immed_end; ++immed_iter) {
-                    auto& cb = immed_iter->callback;
-
-                    if (cb) {
-                        cb();
-                    } else {
-                        --canceled_handles;
-                    }
-
-                    ++immed_to_remove;
-                }
-            }
-
-            // process deferred
-            const auto now = steady_clock::now();
-            DeferredHeap defer_just_freed;
-
-            for (size_t i = std::min(BURST_COUNT, defer_queue.size()); i > 0;
-                 --i) {
-                auto& h_it = defer_queue.top();
-
-                if (h_it->when > now) {
-                    break;
-                }
-
-                auto& cb = h_it->callback;
-
-                if (cb) {
-                    cb();
+                if (cookie != 0) {
+                    cookie = 0;
+                    ih.callback();
                 } else {
                     --canceled_handles;
                 }
 
-                defer_just_freed.splice(
-                        defer_just_freed.begin(), defer_used_heap, h_it);
+                immed_queue.pop_front();
+            }
 
+            const auto now = steady_clock::now();
+
+            // NOTE: it's assumed deferred calls are almost always canceled, but
+            // not executed!
+            for (size_t i = BURST_COUNT; (i > 0) && !defer_queue.empty(); --i) {
+                auto& h_it = defer_queue.top();
+
+                auto& cookie = h_it->cookie;
+
+                if (cookie != 0) {
+                    if (h_it->when > now) {
+                        break;
+                    }
+
+                    cookie = 0;
+                    h_it->callback();
+                } else {
+                    --canceled_handles;
+                }
+
+                defer_free_heap.splice(
+                        defer_free_heap.begin(), defer_used_heap, h_it);
                 defer_queue.pop();
             }
 
-            // cleanup & requests
-            {
-                lock_guard lock(handle_mutex);
+            // TODO: redesign
+            if (canceled_handles > (defer_used_heap.size() / 2)) {
+                auto iter = defer_used_heap.begin();
+                const auto end = defer_used_heap.end();
 
-                for (size_t i = immed_to_remove; i > 0; --i) {
-                    auto& h = immed_queue.front();
+                defer_queue = DeferredPriorityQueue();
 
-                    auto outer = h.outer;
-
-                    if (outer != nullptr) {
-                        HandleAccessor(*outer).internal_ = nullptr;
-                        h.outer = nullptr;
+                while (iter != end) {
+                    if (iter->cookie != 0) {
+                        defer_queue.push(iter);
+                        ++iter;
+                    } else {
+                        --canceled_handles;
+                        auto to_move = iter;
+                        ++iter;
+                        defer_free_heap.splice(
+                                defer_free_heap.begin(),
+                                defer_used_heap,
+                                to_move);
                     }
-
-                    immed_queue.pop_front();
-                }
-
-                while (!defer_just_freed.empty()) {
-                    auto h_it = defer_just_freed.begin();
-
-                    auto outer = h_it->outer;
-
-                    if (outer != nullptr) {
-                        HandleAccessor(*outer).internal_ = nullptr;
-                        h_it->outer = nullptr;
-                    }
-
-                    defer_free_heap.splice(
-                            defer_free_heap.begin(), defer_just_freed, h_it);
-                }
-
-                // TODO: temporary workaround -> use heap on list instead
-                if (canceled_handles > (defer_used_heap.size() / 2)) {
-                    auto iter = defer_used_heap.begin();
-                    const auto end = defer_used_heap.end();
-
-                    defer_queue = DeferredPriorityQueue();
-
-                    while (iter != end) {
-                        if (iter->callback) {
-                            defer_queue.push(iter);
-                            ++iter;
-                        } else {
-                            --canceled_handles;
-                            auto to_move = iter;
-                            ++iter;
-                            defer_free_heap.splice(
-                                    defer_free_heap.begin(),
-                                    defer_used_heap,
-                                    to_move);
-                        }
-                    }
-                }
-
-                while (!handle_tasks.empty()) {
-                    handle_tasks.front()();
-                    handle_tasks.pop_front();
                 }
             }
+
+            // Process external requests
+            handle_task_queue();
         }
 
         void AsyncTool::cancel(Handle& h) noexcept
         {
             HandleAccessor ha(h);
-            std::unique_lock<std::mutex> lock(
-                    impl_->handle_mutex, std::defer_lock);
 
-            if (!is_same_thread()) {
-                lock.lock();
+            auto internal = ha.internal();
 
-                if (ha.internal_ == nullptr) {
-                    return;
+            if (internal != nullptr) {
+                ha.internal() = nullptr;
+                auto immed = static_cast<Impl::ImmediateHandle*>(internal);
+                auto ha_cookie = ha.cookie();
+
+                if (immed->cookie != ha_cookie) {
+                    // pass
+                } else if (!is_same_thread()) {
+                    std::promise<void> res;
+                    Impl::HandleTask task = [this, immed, ha_cookie, &res]() {
+                        if (immed->cookie == ha_cookie) {
+                            ++(impl_->canceled_handles);
+                            immed->cookie = 0;
+                        }
+                        res.set_value();
+                    };
+
+                    impl_->add_handle_task(task);
+                    res.get_future().wait();
+                } else {
+                    ++(impl_->canceled_handles);
+                    immed->cookie = 0;
                 }
             }
-
-            auto internal = static_cast<Impl::ImmediateHandle*>(ha.internal_);
-            internal->callback = Callback();
-            internal->outer = nullptr;
-            ha.internal_ = nullptr;
-
-            ++(impl_->canceled_handles);
         }
 
-        void AsyncTool::move(Handle& src, Handle& dst) noexcept
-        {
-            HandleAccessor srca(src);
-            HandleAccessor dsta(dst);
-            std::unique_lock<std::mutex> lock(
-                    impl_->handle_mutex, std::defer_lock);
-
-            if (!is_same_thread()) {
-                lock.lock();
-
-                if (srca.internal_ == nullptr) {
-                    dsta.internal_ = nullptr;
-                    return;
-                }
-            }
-
-            dsta.internal_ = srca.internal_;
-            dsta.async_tool_ = srca.async_tool_;
-            dsta.internal_->outer = &dst;
-
-            srca.internal_ = nullptr;
-            srca.async_tool_ = nullptr;
-        }
-
-        void AsyncTool::free(Handle& h) noexcept
+        bool AsyncTool::is_valid(Handle& h) noexcept
         {
             HandleAccessor ha(h);
-            std::unique_lock<std::mutex> lock(
-                    impl_->handle_mutex, std::defer_lock);
 
-            if (!is_same_thread()) {
-                lock.lock();
+            auto internal = ha.internal();
 
-                if (ha.internal_ == nullptr) {
-                    return;
-                }
+            if (internal == nullptr) {
+                return false;
             }
 
-            ha.internal_->outer = nullptr;
-            ha.internal_ = nullptr;
+            auto immed = static_cast<Impl::ImmediateHandle*>(internal);
+
+            return immed->cookie == ha.cookie();
         }
 
         AsyncTool::Stats AsyncTool::stats() noexcept
         {
-            lock_guard lock(impl_->handle_mutex);
+            // not safe
 
             return {
                     impl_->immed_queue.size(),
                     impl_->defer_used_heap.size(),
                     impl_->defer_free_heap.size(),
-                    impl_->handle_tasks.size(),
+                    impl_->handle_tasks.read_available(),
             };
         }
 
         void AsyncTool::shrink_to_fit() noexcept
         {
-            if (!is_same_thread()) {
-                Impl::HandleTask task([this]() {
-                    this->shrink_to_fit();
-                    return Handle();
-                });
-                auto res = task.get_future();
-
-                {
-                    std::lock_guard<std::mutex> lock(impl_->handle_mutex);
-                    impl_->handle_tasks.emplace_back(std::move(task));
+            if (is_same_thread()) {
+                if (impl_->immed_queue.empty()) {
+                    impl_->immed_queue.shrink_to_fit();
                 }
 
-                impl_->poke();
-                res.wait();
-            } else {
-                impl_->immed_queue.shrink_to_fit();
-                impl_->handle_tasks.shrink_to_fit();
                 impl_->defer_free_heap.clear();
+            } else {
+                std::promise<void> res;
+                Impl::HandleTask task = [this, &res]() {
+                    this->shrink_to_fit();
+                    res.set_value();
+                };
+
+                impl_->add_handle_task(task);
+                res.get_future().wait();
             }
         }
     } // namespace ri

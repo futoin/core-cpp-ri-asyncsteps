@@ -31,6 +31,9 @@ option(FUTOIN_WITH_DOCS "Build documentation" ON)
 
 # Deps
 #-----
+hunter_add_package(Boost)
+find_package(Boost CONFIG REQUIRED)
+
 if (FUTOIN_WITH_TESTS)
     hunter_add_package(Boost COMPONENTS test)
     find_package(Boost CONFIG REQUIRED unit_test_framework)
@@ -51,8 +54,9 @@ add_library(futoin::asyncsteps ALIAS ${PROJECT_NAME})
 
 target_link_libraries(${PROJECT_NAME} PUBLIC futoin::api Threads::Threads)
 
-target_include_directories(${PROJECT_NAME} PUBLIC
-    ${CMAKE_CURRENT_LIST_DIR}/include
+target_include_directories(${PROJECT_NAME}
+    PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include
+    PRIVATE Boost::boost
 )
 # since CMake 3.8
 #target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_11 )

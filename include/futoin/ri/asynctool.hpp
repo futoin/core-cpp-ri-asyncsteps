@@ -70,8 +70,7 @@ namespace futoin {
 
         protected:
             void cancel(Handle& h) noexcept override;
-            void move(Handle& src, Handle& dst) noexcept override;
-            void free(Handle& h) noexcept override;
+            bool is_valid(Handle& h) noexcept override;
 
         private:
             struct Impl;
