@@ -31,7 +31,7 @@ namespace futoin {
         /**
          * @brief Common implementation of AsyncSteps
          */
-        class BaseAsyncSteps : public futoin::AsyncSteps
+        class BaseAsyncSteps : public IAsyncSteps
         {
         public:
             BaseAsyncSteps(const BaseAsyncSteps&) = delete;
@@ -43,14 +43,13 @@ namespace futoin {
             void add_step(
                     asyncsteps::ExecHandler&& func,
                     asyncsteps::ErrorHandler&& on_error) noexcept override;
-            futoin::AsyncSteps& parallel(
+            IAsyncSteps& parallel(
                     asyncsteps::ErrorHandler on_error) noexcept override;
             void handle_success() noexcept override;
             void handle_error(ErrorCode /*code*/) override;
 
             asyncsteps::NextArgs& nextargs() noexcept override;
-            futoin::AsyncSteps& copyFrom(
-                    futoin::AsyncSteps& /*asi*/) noexcept override;
+            IAsyncSteps& copyFrom(IAsyncSteps& /*asi*/) noexcept override;
 
             void setTimeout(std::chrono::milliseconds /*to*/) noexcept override;
             void setCancel(asyncsteps::CancelCallback /*cb*/) noexcept override;
@@ -58,7 +57,7 @@ namespace futoin {
             void execute() noexcept override;
             void cancel() noexcept override;
             void loop_logic(asyncsteps::LoopState&& ls) noexcept override;
-            std::unique_ptr<futoin::AsyncSteps> newInstance() noexcept override;
+            std::unique_ptr<IAsyncSteps> newInstance() noexcept override;
 
         protected:
             BaseAsyncSteps(IAsyncTool&) noexcept;

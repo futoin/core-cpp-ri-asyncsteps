@@ -90,7 +90,7 @@ namespace futoin {
 
         //---
 
-        class BaseAsyncSteps::Protector : public futoin::AsyncSteps
+        class BaseAsyncSteps::Protector : public IAsyncSteps
         {
             friend BaseAsyncSteps;
             friend BaseAsyncSteps::Impl;
@@ -133,8 +133,7 @@ namespace futoin {
                 queue_.push_back(std::move(qi));
             }
 
-            futoin::AsyncSteps& parallel(
-                    ErrorHandler on_error) noexcept override;
+            IAsyncSteps& parallel(ErrorHandler on_error) noexcept override;
 
             void handle_success() noexcept override
             {
@@ -154,8 +153,7 @@ namespace futoin {
                 return root_->nextargs();
             }
 
-            futoin::AsyncSteps& copyFrom(
-                    futoin::AsyncSteps& /*asi*/) noexcept override
+            IAsyncSteps& copyFrom(IAsyncSteps& /*asi*/) noexcept override
             {
                 on_invalid_call("copyFrom() is not supported in C++");
             }
@@ -184,7 +182,7 @@ namespace futoin {
                 sanity_check();
 
                 if (!on_cancel_) {
-                    on_cancel_ = [](futoin::AsyncSteps&) {};
+                    on_cancel_ = [](IAsyncSteps&) {};
                 }
             }
 
@@ -207,7 +205,7 @@ namespace futoin {
                 queue_.push_back(std::move(qi));
             }
 
-            static void loop_handler(futoin::AsyncSteps& asi) noexcept
+            static void loop_handler(IAsyncSteps& asi) noexcept
             {
                 auto& that = static_cast<Protector&>(asi);
                 auto& ls = *(that.loop_state_);
@@ -215,7 +213,7 @@ namespace futoin {
                 (void) ls;
             }
 
-            std::unique_ptr<futoin::AsyncSteps> newInstance() noexcept override
+            std::unique_ptr<IAsyncSteps> newInstance() noexcept override
             {
                 sanity_check();
 
@@ -247,7 +245,7 @@ namespace futoin {
                     BaseAsyncSteps& root, ErrorHandler&& on_error) noexcept :
                 Protector(
                         root,
-                        [](futoin::AsyncSteps& asi) {
+                        [](IAsyncSteps& asi) {
                             static_cast<ParallelStep&>(asi).process();
                         },
                         forward<ErrorHandler>(on_error))
@@ -283,8 +281,7 @@ namespace futoin {
                 items_.push_back(std::move(asi));
             }
 
-            futoin::AsyncSteps& parallel(
-                    ErrorHandler /*on_error*/) noexcept override
+            IAsyncSteps& parallel(ErrorHandler /*on_error*/) noexcept override
             {
                 on_invalid_call("parallel() on parallel()");
             }
@@ -330,7 +327,7 @@ namespace futoin {
 
         //---
 
-        futoin::AsyncSteps& BaseAsyncSteps::Protector::parallel(
+        IAsyncSteps& BaseAsyncSteps::Protector::parallel(
                 ErrorHandler on_error) noexcept
         {
             sanity_check();
@@ -366,8 +363,7 @@ namespace futoin {
             impl_->queue_.push_back(std::move(qi));
         }
 
-        futoin::AsyncSteps& BaseAsyncSteps::parallel(
-                ErrorHandler on_error) noexcept
+        IAsyncSteps& BaseAsyncSteps::parallel(ErrorHandler on_error) noexcept
         {
             impl_->sanity_check();
 
@@ -393,8 +389,7 @@ namespace futoin {
             return impl_->next_args_;
         }
 
-        futoin::AsyncSteps& BaseAsyncSteps::copyFrom(
-                futoin::AsyncSteps& asi) noexcept
+        IAsyncSteps& BaseAsyncSteps::copyFrom(IAsyncSteps& asi) noexcept
         {
             impl_->sanity_check();
 
@@ -442,10 +437,9 @@ namespace futoin {
             impl_->queue_.push_back(std::move(qi));
         }
 
-        std::unique_ptr<futoin::AsyncSteps>
-        BaseAsyncSteps::newInstance() noexcept
+        std::unique_ptr<IAsyncSteps> BaseAsyncSteps::newInstance() noexcept
         {
-            return std::unique_ptr<futoin::AsyncSteps>(
+            return std::unique_ptr<IAsyncSteps>(
                     new ri::AsyncSteps(impl_->async_tool_));
         }
 
