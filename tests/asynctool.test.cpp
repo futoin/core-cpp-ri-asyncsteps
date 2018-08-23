@@ -19,6 +19,7 @@
 
 #include <futoin/ri/asynctool.hpp>
 
+#include <atomic>
 #include <future>
 #include <list>
 
@@ -377,7 +378,7 @@ struct StepEmu
 
         if (count % 10 == 0) {
             limit.cancel();
-            limit = at.deferred(std::chrono::seconds(30), []() {});
+            limit = at.deferred(std::chrono::seconds(30), std::ref(*this));
         }
 
         ++count;
@@ -499,6 +500,56 @@ BOOST_AUTO_TEST_CASE(stress) // NOLINT
     });
 
     done.get_future().wait();
+}
+
+BOOST_AUTO_TEST_CASE(external_stress) // NOLINT
+{
+    AsyncTool at;
+
+    auto measure = [&](size_t thread_count) {
+        std::cout << "Running threads: " << thread_count << std::endl;
+
+        std::atomic_bool run{true};
+        volatile size_t call_count = 0;
+        std::atomic_size_t scheduled{0};
+
+        auto step = [&]() { ++call_count; };
+
+        at.deferred(std::chrono::seconds(1), [&]() {
+            run.store(false, std::memory_order_release);
+        });
+
+        auto ext_run = [&]() {
+            while (run.load(std::memory_order_consume)) {
+                at.immediate(std::ref(step));
+                ++scheduled;
+            }
+        };
+
+        std::list<std::thread> threads;
+
+        while (thread_count-- > 0) {
+            threads.emplace_back(std::ref(ext_run));
+        }
+
+        for (auto& t : threads) {
+            t.join();
+        }
+
+        std::promise<void> done;
+        at.immediate([&]() { done.set_value(); });
+        done.get_future().wait();
+
+        std::cout << "Call count: " << call_count << std::endl
+                  << "Scheduled count: " << scheduled << std::endl;
+        BOOST_CHECK_GT(call_count, 1e4);
+        return call_count;
+    };
+
+    measure(1);
+    measure(3);
+    measure(5);
+    measure(50);
 }
 
 BOOST_AUTO_TEST_SUITE_END() // NOLINT

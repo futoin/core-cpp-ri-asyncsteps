@@ -127,7 +127,7 @@ namespace futoin {
             void handle_task_queue()
             {
                 // Process external requests
-                while (handle_tasks.read_available() != 0) {
+                for (size_t c = handle_tasks.read_available(); c > 0; --c) {
                     handle_tasks.front()->operator()();
                     handle_tasks.pop();
                 }
@@ -135,10 +135,16 @@ namespace futoin {
 
             void add_handle_task(HandleTask& task)
             {
-                for (bool done = false; !done;) {
-                    std::lock_guard<std::mutex> lock(handle_mutex);
+                for (bool done = false;;) {
+                    lock_guard lock(handle_mutex);
                     done = handle_tasks.push(&task);
-                    poke();
+
+                    if (done) {
+                        poke();
+                        break;
+                    }
+
+                    std::this_thread::yield();
                 }
             }
 
@@ -201,9 +207,10 @@ namespace futoin {
         {
             if (!AsyncTool::is_same_thread()) {
                 std::promise<AsyncTool::Handle> res;
-                Impl::HandleTask task = [this, &res, &cb]() {
+                auto func = [this, &res, &cb]() {
                     res.set_value(this->immediate(std::forward<Callback>(cb)));
                 };
+                Impl::HandleTask task = std::ref(func);
 
                 impl_->add_handle_task(task);
                 return res.get_future().get();
@@ -222,10 +229,11 @@ namespace futoin {
         {
             if (!AsyncTool::is_same_thread()) {
                 std::promise<AsyncTool::Handle> res;
-                Impl::HandleTask task = [this, &res, &cb, delay]() {
+                auto func = [this, &res, &cb, delay]() {
                     res.set_value(
                             this->deferred(delay, std::forward<Callback>(cb)));
                 };
+                Impl::HandleTask task = std::ref(func);
 
                 impl_->add_handle_task(task);
                 return res.get_future().get();
@@ -274,22 +282,24 @@ namespace futoin {
 
         void AsyncTool::Impl::process() noexcept
         {
-            while (!is_shutdown) {
+            while (!is_shutdown.load(std::memory_order_relaxed)) {
                 iterate();
 
                 if (immed_queue.empty() && handle_tasks.empty()) {
                     std::unique_lock<std::mutex> lock(handle_mutex);
 
-                    if (is_shutdown) {
-                        break;
-                    }
+                    if (immed_queue.empty() && handle_tasks.empty()) {
+                        if (is_shutdown.load(std::memory_order_relaxed)) {
+                            break;
+                        }
 
-                    if (defer_queue.empty()) {
-                        poke_var.wait(lock);
-                    } else {
-                        auto when = defer_queue.top()->when
-                                    + std::chrono::milliseconds(1);
-                        poke_var.wait_until(lock, when);
+                        if (defer_queue.empty()) {
+                            poke_var.wait(lock);
+                        } else {
+                            auto when = defer_queue.top()->when
+                                        + std::chrono::milliseconds(1);
+                            poke_var.wait_until(lock, when);
+                        }
                     }
                 }
             }
@@ -405,13 +415,14 @@ namespace futoin {
                     // pass
                 } else if (!is_same_thread()) {
                     std::promise<void> res;
-                    Impl::HandleTask task = [this, immed, ha_cookie, &res]() {
+                    auto func = [this, immed, ha_cookie, &res]() {
                         if (immed->cookie == ha_cookie) {
                             ++(impl_->canceled_handles);
                             immed->cookie = 0;
                         }
                         res.set_value();
                     };
+                    Impl::HandleTask task = std::ref(func);
 
                     impl_->add_handle_task(task);
                     res.get_future().wait();
@@ -459,10 +470,11 @@ namespace futoin {
                 impl_->defer_free_heap.clear();
             } else {
                 std::promise<void> res;
-                Impl::HandleTask task = [this, &res]() {
+                auto func = [this, &res]() {
                     this->shrink_to_fit();
                     res.set_value();
                 };
+                Impl::HandleTask task = std::ref(func);
 
                 impl_->add_handle_task(task);
                 res.get_future().wait();
