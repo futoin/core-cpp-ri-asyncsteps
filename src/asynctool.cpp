@@ -19,6 +19,7 @@
 
 #include <cassert>
 #include <deque>
+#include <iostream>
 #include <list>
 #include <queue>
 //---

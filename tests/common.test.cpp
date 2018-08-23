@@ -17,7 +17,8 @@
 
 #include <boost/test/unit_test.hpp>
 
-#include <futoin/asyncsteps.hpp>
+#include <futoin/ri/asyncsteps.hpp>
+#include <futoin/ri/asynctool.hpp>
 
 BOOST_AUTO_TEST_SUITE(common) // NOLINT
 

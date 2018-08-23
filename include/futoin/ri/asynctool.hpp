@@ -14,15 +14,14 @@
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
 //-----------------------------------------------------------------------------
-//! @file
-//! @brief Reference Implementation of AsyncSteps (FTN8)e for C++
-//! @sa https://specs.futoin.org/final/preview/ftn12_async_api.html
-//-----------------------------------------------------------------------------
 
 #ifndef FUTOIN_RI_ASYNCTOOL_HPP
 #define FUTOIN_RI_ASYNCTOOL_HPP
 //---
-#include "./asyncsteps.hpp"
+#include <futoin/asynctool.hpp>
+//---
+#include <memory>
+//---
 
 namespace futoin {
     namespace ri {
@@ -55,7 +54,7 @@ namespace futoin {
                     std::chrono::milliseconds delay,
                     Callback&& cb) noexcept override;
             bool is_same_thread() noexcept override;
-            CycleResult iterate() noexcept;
+            CycleResult iterate() noexcept override;
 
             struct Stats
             {

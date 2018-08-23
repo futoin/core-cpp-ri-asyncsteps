@@ -15,175 +15,19 @@
 //   limitations under the License.
 //-----------------------------------------------------------------------------
 //! @file
-//! @brief Reference Implementation of AsyncSteps (FTN8)e for C++
+//! @brief Reference Implementation of AsyncSteps (FTN12) for C++
 //! @sa https://specs.futoin.org/final/preview/ftn12_async_api.html
 //-----------------------------------------------------------------------------
 
 #ifndef FUTOIN_RI_ASYNCSTEPS_HPP
 #define FUTOIN_RI_ASYNCSTEPS_HPP
 //---
+#include "./asynctool.hpp"
 #include <futoin/asyncsteps.hpp>
 //---
 
 namespace futoin {
     namespace ri {
-        /**
-         * @brief Interface of async reactor.
-         */
-        class IAsyncTool
-        {
-        public:
-            using Callback = std::function<void()>;
-            using HandleCookie = std::ptrdiff_t;
-
-        protected:
-            struct HandleAccessor;
-            struct InternalHandle
-            {
-                InternalHandle(Callback&& cb) :
-                    callback(std::forward<Callback>(cb))
-                {}
-
-                // InternalHandle(InternalHandle&& other) noexcept = default;
-                // InternalHandle& operator=(InternalHandle&& other) noexcept =
-                // default;
-                InternalHandle(InternalHandle&& other) noexcept :
-                    callback(std::move(other.callback))
-                {}
-                InternalHandle& operator=(InternalHandle&& other) noexcept
-                {
-                    if (this != &other) {
-                        callback = std::move(other.callback);
-                    }
-
-                    return *this;
-                }
-
-                InternalHandle(const InternalHandle& other) = delete;
-                InternalHandle& operator=(const InternalHandle& other) = delete;
-
-                Callback callback;
-            };
-
-        public:
-            IAsyncTool() = default;
-            IAsyncTool(const IAsyncTool&) = delete;
-            IAsyncTool& operator=(const IAsyncTool&) = delete;
-            IAsyncTool(const IAsyncTool&&) = delete;
-            IAsyncTool& operator=(const IAsyncTool&&) = delete;
-            virtual ~IAsyncTool() noexcept = default;
-
-            /**
-             * @brief Handle to scheduled callback
-             */
-            class Handle
-            {
-            public:
-                Handle(InternalHandle& internal,
-                       IAsyncTool& async_tool,
-                       HandleCookie cookie) noexcept :
-                    internal_(&internal),
-                    async_tool_(&async_tool), cookie_(cookie)
-                {}
-
-                Handle() = default;
-
-                Handle(const Handle&) = delete;
-                Handle& operator=(const Handle&) = delete;
-
-                Handle(Handle&& other) noexcept = default;
-                Handle& operator=(Handle&& other) noexcept = default;
-
-                ~Handle() noexcept = default;
-
-                void cancel() noexcept
-                {
-                    if (internal_ != nullptr) {
-                        async_tool_->cancel(*this);
-                    }
-                }
-
-                operator bool() const noexcept
-                {
-                    return (internal_ != nullptr)
-                           && async_tool_->is_valid(*const_cast<Handle*>(this));
-                }
-
-            private:
-                friend struct IAsyncTool::InternalHandle;
-                friend struct IAsyncTool::HandleAccessor;
-
-                InternalHandle* internal_{nullptr};
-                IAsyncTool* async_tool_{nullptr};
-                HandleCookie cookie_{0};
-            };
-
-            /**
-             * @brief Schedule immediate callback
-             */
-            virtual Handle immediate(Callback&& cb) noexcept = 0;
-
-            /**
-             * @brief Schedule deferred callback
-             */
-            virtual Handle deferred(
-                    std::chrono::milliseconds delay,
-                    Callback&& cb) noexcept = 0;
-
-            /**
-             * @brief Check, if the same thread as internal event loop
-             */
-            virtual bool is_same_thread() noexcept = 0;
-
-            /**
-             * Result of one internal cycle
-             */
-            struct CycleResult
-            {
-                CycleResult(
-                        bool have_work,
-                        std::chrono::milliseconds delay) noexcept :
-                    delay(delay),
-                    have_work(have_work)
-                {}
-
-                std::chrono::milliseconds delay;
-                bool have_work;
-            };
-
-            /**
-             * @brief Iterate a cycle of internal loop.
-             * @note For integration with external event loop.
-             */
-            CycleResult iterate() noexcept;
-
-        protected:
-            struct HandleAccessor
-            {
-                HandleAccessor(Handle& handle) : handle(handle) {}
-
-                Handle& handle;
-
-                InternalHandle*& internal()
-                {
-                    return handle.internal_;
-                }
-
-                IAsyncTool*& async_tool()
-                {
-                    return handle.async_tool_;
-                }
-
-                HandleCookie& cookie()
-                {
-                    return handle.cookie_;
-                }
-            };
-
-            virtual void cancel(Handle& h) noexcept = 0;
-            virtual bool is_valid(Handle& h) noexcept = 0;
-        };
-
         /**
          * @brief Common implementation of AsyncSteps
          */

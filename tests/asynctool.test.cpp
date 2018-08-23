@@ -21,6 +21,7 @@
 
 #include <atomic>
 #include <future>
+#include <iostream>
 #include <list>
 
 BOOST_AUTO_TEST_SUITE(asynctool) // NOLINT
