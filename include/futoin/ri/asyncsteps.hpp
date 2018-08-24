@@ -82,6 +82,7 @@ namespace futoin {
             ~AsyncSteps() noexcept override = default;
 
             asyncsteps::State& state() noexcept override;
+            using BaseAsyncSteps::state;
 
         private:
             asyncsteps::State state_;

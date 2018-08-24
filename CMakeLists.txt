@@ -87,7 +87,7 @@ if (FUTOIN_WITH_TESTS)
     #---
     add_executable(RIAsyncStepsTest
         tests/asynctool.test.cpp
-        tests/common.test.cpp
+        tests/asyncsteps.test.cpp
         tests/main.test.cpp
     )
     target_link_libraries(RIAsyncStepsTest

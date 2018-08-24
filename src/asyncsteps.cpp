@@ -108,7 +108,7 @@ namespace futoin {
 
             void sanity_check()
             {
-                assert(root_);
+                assert(root_ != nullptr);
             }
 
             StepData& add_step() noexcept override
@@ -448,8 +448,11 @@ namespace futoin {
             while (!stack_.empty()) {
                 auto& q = stack_.top()->queue_;
 
-                if (!q.empty()) {
+                if (q.empty()) {
+                    stack_.pop();
+                } else {
                     next = q.front().get();
+                    break;
                 }
             }
 
@@ -461,12 +464,17 @@ namespace futoin {
                 next = queue_.front().get();
             }
 
+            stack_.push(next);
+            current_ = next;
+            const auto slen = stack_.size();
+
             try {
-                current_ = next;
                 in_exec_ = true;
                 next->data_.func_(*next);
 
-                if (!next->queue_.empty()) {
+                if (stack_.size() < slen) {
+                    // pass
+                } else if (!next->queue_.empty()) {
                     schedule_exec();
                 } else if (!next->on_cancel_ && !next->limit_handle_) {
                     next->success();
@@ -474,14 +482,14 @@ namespace futoin {
 
                 in_exec_ = false;
             } catch (const std::exception& e) {
-                next->handle_error(e.what());
                 in_exec_ = false;
+                next->handle_error(e.what());
             }
         }
 
         void BaseAsyncSteps::Impl::handle_success() noexcept
         {
-            if (current_ != stack_.top()) {
+            if (stack_.empty() || (current_ != stack_.top())) {
                 on_invalid_call("success() out of order");
             }
 
@@ -489,9 +497,9 @@ namespace futoin {
                 on_invalid_call("success() with sub-steps");
             }
 
-            while (!stack_.empty()) {
-                stack_.pop();
+            stack_.pop();
 
+            while (!stack_.empty()) {
                 current_ = stack_.top();
 
                 auto& q = current_->queue_;
@@ -501,6 +509,8 @@ namespace futoin {
                     schedule_exec();
                     return;
                 }
+
+                stack_.pop();
             }
 
             // Got to root queue
@@ -528,7 +538,7 @@ namespace futoin {
                 on_invalid_call("error() out of order");
             }
 
-            while (!stack_.empty()) {
+            for (;;) {
                 current_->queue_.clear();
 
                 current_->limit_handle_.cancel();
@@ -545,10 +555,11 @@ namespace futoin {
                 if (on_error) {
                     try {
                         in_exec_ = true;
-                        auto slen = stack_.size();
+                        const auto slen = stack_.size();
                         on_error(*current_, code);
+                        in_exec_ = false;
 
-                        if (stack_.size() != slen) {
+                        if (stack_.size() < slen) {
                             // success() was called
                             return;
                         }
@@ -564,6 +575,11 @@ namespace futoin {
                 }
 
                 stack_.pop();
+
+                if (stack_.empty()) {
+                    break;
+                }
+
                 current_ = stack_.top();
             }
 
@@ -578,6 +594,8 @@ namespace futoin {
         }
 
         //---
+        AsyncSteps::AsyncSteps(IAsyncTool& at) noexcept : BaseAsyncSteps(at) {}
+
         State& AsyncSteps::state() noexcept
         {
             return state_;
