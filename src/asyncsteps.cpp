@@ -27,7 +27,6 @@ namespace futoin {
     namespace ri {
 
         using namespace futoin::asyncsteps;
-        using std::forward;
 
         //---
         [[noreturn]] static void on_invalid_call(
@@ -99,14 +98,7 @@ namespace futoin {
             using Queue = Impl::Queue;
 
         public:
-            Protector(
-                    BaseAsyncSteps& root,
-                    ExecHandler&& func = {},
-                    ErrorHandler&& on_error = {}) noexcept :
-                root_(&root),
-                func_(forward<ExecHandler>(func)),
-                on_error_(forward<ErrorHandler>(on_error))
-            {}
+            Protector(BaseAsyncSteps& root) noexcept : root_(&root) {}
 
             ~Protector() noexcept override
             {
@@ -119,21 +111,16 @@ namespace futoin {
                 assert(root_);
             }
 
-            void add_step(
-                    ExecHandler&& func,
-                    ErrorHandler&& on_error) noexcept override
+            StepData& add_step() noexcept override
             {
                 sanity_check();
 
-                QueueItem qi(new Protector(
-                        *root_,
-                        forward<ExecHandler>(func),
-                        forward<ErrorHandler>(on_error)));
-
-                queue_.push_back(std::move(qi));
+                auto step = new Protector(*root_);
+                queue_.emplace_back(step);
+                return step->data_;
             }
 
-            IAsyncSteps& parallel(ErrorHandler on_error) noexcept override;
+            IAsyncSteps& parallel(ErrorPass on_error = {}) noexcept override;
 
             void handle_success() noexcept override
             {
@@ -171,10 +158,10 @@ namespace futoin {
                         to, [this]() { this->cancel(); });
             }
 
-            void setCancel(CancelCallback cb) noexcept override
+            void setCancel(CancelPass cb) noexcept override
             {
                 sanity_check();
-                on_cancel_ = std::move(cb);
+                cb.move(on_cancel_, on_cancel_storage_);
             }
 
             void waitExternal() noexcept override
@@ -196,13 +183,18 @@ namespace futoin {
                 on_invalid_call("cancel() in execute()");
             }
 
-            void loop_logic(LoopState&& ls) noexcept override
+            LoopState& add_loop() noexcept override
             {
                 sanity_check();
 
-                QueueItem qi(new Protector(*root_, &Protector::loop_handler));
-                qi->loop_state_.reset(new LoopState(forward<LoopState>(ls)));
-                queue_.push_back(std::move(qi));
+                auto step = new Protector(*root_);
+                queue_.emplace_back(step);
+
+                step->data_.func_ = &Protector::loop_handler;
+
+                auto& pls = step->loop_state_;
+                pls.reset(new LoopState);
+                return *pls;
             }
 
             static void loop_handler(IAsyncSteps& asi) noexcept
@@ -224,11 +216,11 @@ namespace futoin {
             BaseAsyncSteps* root_;
             Queue queue_;
 
-            ExecHandler func_;
-            ErrorHandler on_error_;
+            CancelPass::Storage on_cancel_storage_;
+            StepData data_;
             CancelCallback on_cancel_;
-            IAsyncTool::Handle limit_handle_;
             std::unique_ptr<LoopState> loop_state_;
+            IAsyncTool::Handle limit_handle_;
         };
 
         //---
@@ -241,15 +233,12 @@ namespace futoin {
             using ParallelItems = std::deque<SubAsyncSteps>;
 
         public:
-            ParallelStep(
-                    BaseAsyncSteps& root, ErrorHandler&& on_error) noexcept :
-                Protector(
-                        root,
-                        [](IAsyncSteps& asi) {
-                            static_cast<ParallelStep&>(asi).process();
-                        },
-                        forward<ErrorHandler>(on_error))
-            {}
+            ParallelStep(BaseAsyncSteps& root) noexcept : Protector(root)
+            {
+                data_.func_ = [](IAsyncSteps& asi) {
+                    static_cast<ParallelStep&>(asi).process();
+                };
+            }
 
             ~ParallelStep() noexcept override
             {
@@ -258,30 +247,23 @@ namespace futoin {
                 }
             }
 
-            void add_step(
-                    ExecHandler&& func,
-                    ErrorHandler&& on_error) noexcept override
+            StepData& add_step() noexcept override
             {
                 sanity_check();
 
-                SubAsyncSteps asi(root_->state(), root_->impl_->async_tool_);
-                asi.add(forward<ExecHandler>(func),
-                        forward<ErrorHandler>(on_error));
-
-                items_.push_back(std::move(asi));
+                items_.emplace_back(root_->state(), root_->impl_->async_tool_);
+                return items_.back().add_step();
             }
 
-            void loop_logic(LoopState&& ls) noexcept override
+            LoopState& add_loop() noexcept override
             {
                 sanity_check();
 
-                SubAsyncSteps asi(root_->state(), root_->impl_->async_tool_);
-                asi.loop_logic(forward<LoopState>(ls));
-
-                items_.push_back(std::move(asi));
+                items_.emplace_back(root_->state(), root_->impl_->async_tool_);
+                return items_.back().add_loop();
             }
 
-            IAsyncSteps& parallel(ErrorHandler /*on_error*/) noexcept override
+            IAsyncSteps& parallel(ErrorPass /*on_error*/) noexcept override
             {
                 on_invalid_call("parallel() on parallel()");
             }
@@ -306,7 +288,7 @@ namespace futoin {
                 on_invalid_call("setTimeout() on parallel()");
             }
 
-            void setCancel(CancelCallback /*cb*/) noexcept override
+            void setCancel(CancelPass /*cb*/) noexcept override
             {
                 on_invalid_call("setCancel() on parallel()");
             }
@@ -328,15 +310,17 @@ namespace futoin {
         //---
 
         IAsyncSteps& BaseAsyncSteps::Protector::parallel(
-                ErrorHandler on_error) noexcept
+                ErrorPass on_error) noexcept
         {
             sanity_check();
 
-            QueueItem qi(
-                    new ParallelStep(*root_, forward<ErrorHandler>(on_error)));
-            queue_.push_back(std::move(qi));
+            queue_.emplace_back(new ParallelStep(*root_));
+            auto& res = queue_.back();
 
-            return *this;
+            auto& data = res->data_;
+            on_error.move(data.on_error_, data.on_error_storage_);
+
+            return *res;
         }
 
         //---
@@ -350,28 +334,26 @@ namespace futoin {
             BaseAsyncSteps::cancel();
         }
 
-        void BaseAsyncSteps::add_step(
-                ExecHandler&& func, ErrorHandler&& on_error) noexcept
+        IAsyncSteps::StepData& BaseAsyncSteps::add_step() noexcept
         {
             impl_->sanity_check();
 
-            Protector::QueueItem qi(new Protector(
-                    *this,
-                    forward<ExecHandler>(func),
-                    forward<ErrorHandler>(on_error)));
-
-            impl_->queue_.push_back(std::move(qi));
+            auto step = new Protector(*this);
+            impl_->queue_.emplace_back(step);
+            return step->data_;
         }
 
-        IAsyncSteps& BaseAsyncSteps::parallel(ErrorHandler on_error) noexcept
+        IAsyncSteps& BaseAsyncSteps::parallel(ErrorPass on_error) noexcept
         {
             impl_->sanity_check();
 
-            Protector::QueueItem qi(
-                    new ParallelStep(*this, forward<ErrorHandler>(on_error)));
-            impl_->queue_.push_back(std::move(qi));
+            auto step = new ParallelStep(*this);
+            impl_->queue_.emplace_back(step);
 
-            return *this;
+            auto& data = step->data_;
+            on_error.move(data.on_error_, data.on_error_storage_);
+
+            return *step;
         }
 
         void BaseAsyncSteps::handle_success() noexcept
@@ -405,7 +387,7 @@ namespace futoin {
             on_invalid_call("setTimeout() outside execute()");
         }
 
-        void BaseAsyncSteps::setCancel(CancelCallback /*cb*/) noexcept
+        void BaseAsyncSteps::setCancel(CancelPass /*cb*/) noexcept
         {
             on_invalid_call("setCancel() outside execute()");
         }
@@ -427,14 +409,18 @@ namespace futoin {
             impl_->handle_cancel();
         }
 
-        void BaseAsyncSteps::loop_logic(LoopState&& ls) noexcept
+        LoopState& BaseAsyncSteps::add_loop() noexcept
         {
             impl_->sanity_check();
 
-            Protector::QueueItem qi(
-                    new Protector(*this, &Protector::loop_handler));
-            qi->loop_state_.reset(new LoopState(forward<LoopState>(ls)));
-            impl_->queue_.push_back(std::move(qi));
+            auto step = new Protector(*this);
+            impl_->queue_.emplace_back(step);
+
+            step->data_.func_ = &Protector::loop_handler;
+
+            auto& pls = step->loop_state_;
+            pls.reset(new LoopState);
+            return *pls;
         }
 
         std::unique_ptr<IAsyncSteps> BaseAsyncSteps::newInstance() noexcept
@@ -478,7 +464,7 @@ namespace futoin {
             try {
                 current_ = next;
                 in_exec_ = true;
-                next->func_(*next);
+                next->data_.func_(*next);
 
                 if (!next->queue_.empty()) {
                     schedule_exec();
@@ -554,7 +540,7 @@ namespace futoin {
                     current_->on_cancel_ = nullptr;
                 }
 
-                ErrorHandler on_error{std::move(current_->on_error_)};
+                ErrorHandler on_error{std::move(current_->data_.on_error_)};
 
                 if (on_error) {
                     try {

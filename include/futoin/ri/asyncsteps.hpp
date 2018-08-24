@@ -23,7 +23,7 @@
 #define FUTOIN_RI_ASYNCSTEPS_HPP
 //---
 #include "./asynctool.hpp"
-#include <futoin/asyncsteps.hpp>
+#include <futoin/iasyncsteps.hpp>
 //---
 
 namespace futoin {
@@ -40,11 +40,8 @@ namespace futoin {
             BaseAsyncSteps& operator=(BaseAsyncSteps&&) noexcept = default;
             ~BaseAsyncSteps() noexcept override;
 
-            void add_step(
-                    asyncsteps::ExecHandler&& func,
-                    asyncsteps::ErrorHandler&& on_error) noexcept override;
-            IAsyncSteps& parallel(
-                    asyncsteps::ErrorHandler on_error) noexcept override;
+            StepData& add_step() noexcept override;
+            IAsyncSteps& parallel(ErrorPass on_error = {}) noexcept override;
             void handle_success() noexcept override;
             void handle_error(ErrorCode /*code*/) override;
 
@@ -52,11 +49,11 @@ namespace futoin {
             IAsyncSteps& copyFrom(IAsyncSteps& /*asi*/) noexcept override;
 
             void setTimeout(std::chrono::milliseconds /*to*/) noexcept override;
-            void setCancel(asyncsteps::CancelCallback /*cb*/) noexcept override;
+            void setCancel(CancelPass /*cb*/) noexcept override;
             void waitExternal() noexcept override;
             void execute() noexcept override;
             void cancel() noexcept override;
-            void loop_logic(asyncsteps::LoopState&& ls) noexcept override;
+            asyncsteps::LoopState& add_loop() noexcept override;
             std::unique_ptr<IAsyncSteps> newInstance() noexcept override;
 
         protected:

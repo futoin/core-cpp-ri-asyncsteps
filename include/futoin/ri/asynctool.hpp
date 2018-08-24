@@ -18,7 +18,7 @@
 #ifndef FUTOIN_RI_ASYNCTOOL_HPP
 #define FUTOIN_RI_ASYNCTOOL_HPP
 //---
-#include <futoin/asynctool.hpp>
+#include <futoin/iasynctool.hpp>
 //---
 #include <memory>
 //---
