@@ -28,6 +28,10 @@ using namespace futoin;
 
 BOOST_AUTO_TEST_SUITE(asyncsteps) // NOLINT
 
+//=============================================================================
+
+BOOST_AUTO_TEST_SUITE(basic) // NOLINT
+
 BOOST_AUTO_TEST_CASE(add_success) // NOLINT
 {
     ri::AsyncTool at;
@@ -223,5 +227,72 @@ BOOST_AUTO_TEST_CASE(handle_errors) // NOLINT
             required.begin(),
             required.end());
 }
+
+BOOST_AUTO_TEST_CASE(catch_trace) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    using Promise = std::promise<void>;
+    Promise done;
+
+    size_t count = 0;
+    asi.state().catch_trace = [&](const std::exception&) { ++count; };
+    asi.state()["done"] = std::ref(done);
+
+    asi.add(
+            [](IAsyncSteps& asi) {
+                asi.add([](IAsyncSteps& asi) { asi.error("test"); },
+                        [](IAsyncSteps& asi, ErrorCode code) {
+                            asi.error("other");
+                        });
+            },
+            [](IAsyncSteps& asi, ErrorCode code) {
+                asi.state<std::reference_wrapper<Promise>>("done")
+                        .get()
+                        .set_value();
+            });
+
+    asi.execute();
+    done.get_future().wait();
+    BOOST_CHECK_EQUAL(count, 2);
+}
+
+BOOST_AUTO_TEST_SUITE_END() // NOLINT
+
+//=============================================================================
+
+BOOST_AUTO_TEST_SUITE(loops) // NOLINT
+
+BOOST_AUTO_TEST_CASE(repeat) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    std::promise<void> done;
+
+    asi.state()["cnt"] = 0;
+    asi.repeat(100, [](IAsyncSteps& asi, size_t i) {
+        BOOST_CHECK_EQUAL(asi.state<int>("cnt"), i);
+        asi.state<int>("cnt")++;
+    });
+    asi.add([&](IAsyncSteps& asi) { done.set_value(); });
+    asi.execute();
+    done.get_future().wait();
+
+    BOOST_CHECK_EQUAL(asi.state<int>("cnt"), 100);
+}
+
+BOOST_AUTO_TEST_SUITE_END() // NOLINT
+//=============================================================================
+
+BOOST_AUTO_TEST_SUITE(spi) // NOLINT
+
+BOOST_AUTO_TEST_CASE(performance) // NOLINT
+{}
+
+BOOST_AUTO_TEST_SUITE_END() // NOLINT
+
+//=============================================================================
 
 BOOST_AUTO_TEST_SUITE_END() // NOLINT

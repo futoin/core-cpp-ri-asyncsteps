@@ -57,7 +57,8 @@ namespace futoin {
             std::unique_ptr<IAsyncSteps> newInstance() noexcept override;
 
         protected:
-            BaseAsyncSteps(IAsyncTool&) noexcept;
+            BaseAsyncSteps(
+                    asyncsteps::State& state, IAsyncTool& async_tool) noexcept;
 
         private:
             struct ExtLoopState;
@@ -78,8 +79,8 @@ namespace futoin {
 
             AsyncSteps(const AsyncSteps&) = delete;
             AsyncSteps& operator=(const AsyncSteps&) = delete;
-            AsyncSteps(AsyncSteps&&) noexcept = default;
-            AsyncSteps& operator=(AsyncSteps&&) noexcept = default;
+            AsyncSteps(AsyncSteps&&) = default;
+            AsyncSteps& operator=(AsyncSteps&&) = default;
             ~AsyncSteps() noexcept override = default;
 
             asyncsteps::State& state() noexcept override;

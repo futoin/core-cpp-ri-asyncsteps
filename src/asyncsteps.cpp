@@ -53,7 +53,9 @@ namespace futoin {
             using Queue = std::deque<QueueItem>;
             using Stack = std::stack<Protector*>;
 
-            Impl(IAsyncTool& async_tool) : async_tool_(async_tool) {}
+            Impl(State& state, IAsyncTool& async_tool) :
+                async_tool_(async_tool), catch_trace(state.catch_trace)
+            {}
             void sanity_check() {}
 
             void schedule_exec() noexcept;
@@ -82,6 +84,7 @@ namespace futoin {
             Stack stack_;
             IAsyncTool::Handle exec_handle_;
             Protector* current_ = nullptr;
+            State::CatchTrace& catch_trace;
             bool in_exec_ = false;
         };
 
@@ -90,7 +93,7 @@ namespace futoin {
         {
         public:
             SubAsyncSteps(State& state, IAsyncTool& async_tool) noexcept :
-                BaseAsyncSteps(async_tool), state_(state)
+                BaseAsyncSteps(state, async_tool), state_(state)
             {}
 
             State& state() noexcept override
@@ -378,8 +381,9 @@ namespace futoin {
 
         //---
 
-        BaseAsyncSteps::BaseAsyncSteps(IAsyncTool& async_tool) noexcept :
-            impl_(new Impl(async_tool))
+        BaseAsyncSteps::BaseAsyncSteps(
+                State& state, IAsyncTool& async_tool) noexcept :
+            impl_(new Impl(state, async_tool))
         {}
 
         BaseAsyncSteps::~BaseAsyncSteps() noexcept
@@ -537,6 +541,7 @@ namespace futoin {
                 in_exec_ = false;
             } catch (const std::exception& e) {
                 in_exec_ = false;
+                catch_trace(e);
                 next->handle_error(e.what());
             }
         }
@@ -624,6 +629,7 @@ namespace futoin {
                         }
                     } catch (const std::exception& e) {
                         in_exec_ = false;
+                        catch_trace(e);
                         code = e.what();
                     }
                 }
@@ -648,7 +654,9 @@ namespace futoin {
         }
 
         //---
-        AsyncSteps::AsyncSteps(IAsyncTool& at) noexcept : BaseAsyncSteps(at) {}
+        AsyncSteps::AsyncSteps(IAsyncTool& at) noexcept :
+            BaseAsyncSteps(state_, at)
+        {}
 
         State& AsyncSteps::state() noexcept
         {
