@@ -54,6 +54,7 @@ namespace futoin {
             void execute() noexcept override;
             void cancel() noexcept override;
             asyncsteps::LoopState& add_loop() noexcept override;
+            operator bool() const noexcept override;
             std::unique_ptr<IAsyncSteps> newInstance() noexcept override;
 
         protected:

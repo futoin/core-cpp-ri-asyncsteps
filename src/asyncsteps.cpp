@@ -17,7 +17,6 @@
 
 #include <futoin/ri/asyncsteps.hpp>
 
-#include <cassert>
 #include <cstring>
 #include <deque>
 #include <iostream>
@@ -56,7 +55,12 @@ namespace futoin {
             Impl(State& state, IAsyncTool& async_tool) :
                 async_tool_(async_tool), catch_trace(state.catch_trace)
             {}
-            void sanity_check() {}
+            void sanity_check() noexcept
+            {
+                if (!stack_.empty() || exec_handle_) {
+                    on_invalid_call("Out-of-order use of root AsyncSteps");
+                }
+            }
 
             void schedule_exec() noexcept;
             void execute_handler() noexcept;
@@ -161,9 +165,27 @@ namespace futoin {
                 root_ = nullptr;
             }
 
-            void sanity_check()
+            void sanity_check() noexcept
             {
-                assert(root_ != nullptr);
+                if (root_ == nullptr) {
+                    on_invalid_call("Step got invalidated!");
+                }
+
+                auto& stack = root_->impl_->stack_;
+
+                if (stack.empty() || (this != stack.top())) {
+                    on_invalid_call("Step used out-of-order!");
+                }
+            }
+
+            operator bool() const noexcept override
+            {
+                if (root_ == nullptr) {
+                    return false;
+                }
+                auto& stack = root_->impl_->stack_;
+
+                return (!stack.empty() && (this == stack.top()));
             }
 
             StepData& add_step() noexcept override
@@ -271,8 +293,8 @@ namespace futoin {
                 return root_->newInstance();
             }
 
-            // Dirty hack: the step serves as timeout functor (base operator()
-            // is hidden)
+            // Dirty hack: the step serves as timeout functor (base
+            // operator() is hidden)
             void operator()()
             {
                 try {
@@ -313,6 +335,13 @@ namespace futoin {
             {
                 for (auto& v : items_) {
                     v.cancel();
+                }
+            }
+
+            void sanity_check() noexcept
+            {
+                if (root_ == nullptr) {
+                    on_invalid_call("Step got invalidated!");
                 }
             }
 
@@ -367,12 +396,27 @@ namespace futoin {
                 on_invalid_call("waitExternal() on parallel()");
             }
 
+            // Dirty hack: sub-step completion (hides base operators)
+            void operator()(IAsyncSteps& /*asi*/)
+            {
+                ++completed_;
+
+                if (completed_ == items_.size()) {
+                    root_->impl_->handle_success(this);
+                }
+            }
+
         protected:
             ParallelItems items_;
+            size_t completed_{0};
 
             void process() noexcept
             {
-                // TODO
+                for (auto& v : items_) {
+                    v.add(std::ref(*this));
+                    v.impl_->schedule_exec();
+                }
+                Protector::waitExternal();
             }
         };
 
@@ -402,6 +446,11 @@ namespace futoin {
         BaseAsyncSteps::~BaseAsyncSteps() noexcept
         {
             BaseAsyncSteps::cancel();
+        }
+
+        BaseAsyncSteps::operator bool() const noexcept
+        {
+            return (impl_->stack_.empty() && !impl_->exec_handle_);
         }
 
         IAsyncSteps::StepData& BaseAsyncSteps::add_step() noexcept
@@ -475,7 +524,6 @@ namespace futoin {
 
         void BaseAsyncSteps::cancel() noexcept
         {
-            impl_->sanity_check();
             impl_->handle_cancel();
         }
 
@@ -558,10 +606,6 @@ namespace futoin {
 
         void BaseAsyncSteps::Impl::handle_success(Protector* current) noexcept
         {
-            if (stack_.empty() || (current != stack_.top())) {
-                on_invalid_call("success() out of order");
-            }
-
             if (!current->queue_.empty()) {
                 on_invalid_call("success() with sub-steps");
             }
