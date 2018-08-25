@@ -110,7 +110,7 @@ if (FUTOIN_WITH_TESTS)
     
     #---
     add_custom_target(
-        clangtidy-asyncsteps ALL
+        clangtidy-${PROJECT_NAME} ALL
         COMMAND /usr/bin/clang-tidy-6.0
         -checks=bugprone-*,cert-*,clang-analyzer-*,clang-analyzer-*,llvm-*,misc-*,modernize-*,performance-*,readability-*,-modernize-make-unique
         -warnings-as-errors=*
@@ -124,7 +124,7 @@ if (FUTOIN_WITH_TESTS)
     )
     
     add_custom_target(
-        clangformat-asyncsteps ALL
+        clangformat-${PROJECT_NAME} ALL
         COMMAND /usr/bin/clang-format-6.0
         -style=file
         -i
@@ -139,7 +139,7 @@ if (FUTOIN_API_WITH_DOCS)
     find_package(Doxygen REQUIRED dot)
     
     add_custom_target(
-        docs-asyncsteps ALL
+        docs-${PROJECT_NAME} ALL
         COMMAND ${DOXYGEN_EXECUTABLE}
         WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
     )
