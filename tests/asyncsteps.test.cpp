@@ -574,6 +574,72 @@ BOOST_AUTO_TEST_CASE(loop_error) // NOLINT
             required.end());
 }
 
+BOOST_AUTO_TEST_CASE(loop_foreach_vector) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    std::promise<void> done;
+
+    asi.state()["cnt"] = 0;
+
+    // Vector copy
+    asi.forEach(
+            std::vector<int>{1, 2, 3},
+            [](IAsyncSteps& asi, size_t i, int&) { asi.state<int>("cnt")++; });
+
+    std::vector<int> vec{1, 2, 3};
+
+    // Vector ref
+    asi.forEach(std::ref(vec), [](IAsyncSteps& asi, size_t i, int&) {
+        asi.state<int>("cnt")++;
+    });
+
+    // Vector const ref
+    asi.forEach(std::cref(vec), [](IAsyncSteps& asi, size_t i, const int&) {
+        asi.state<int>("cnt")++;
+    });
+
+    asi.add([&](IAsyncSteps& asi) { done.set_value(); });
+    asi.execute();
+    done.get_future().wait();
+
+    BOOST_CHECK_EQUAL(asi.state<int>("cnt"), 9);
+}
+
+BOOST_AUTO_TEST_CASE(loop_foreach_map) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    std::promise<void> done;
+
+    asi.state()["cnt"] = 0;
+
+    std::map<int, int> map{{1, 1}, {2, 2}, {3, 3}};
+
+    // copy
+    asi.forEach(decltype(map)(map), [](IAsyncSteps& asi, int i, int&) {
+        asi.state<int>("cnt")++;
+    });
+
+    // ref
+    asi.forEach(std::ref(map), [](IAsyncSteps& asi, const int& i, int&) {
+        asi.state<int>("cnt")++;
+    });
+
+    // const ref
+    asi.forEach(std::cref(map), [](IAsyncSteps& asi, int i, const int&) {
+        asi.state<int>("cnt")++;
+    });
+
+    asi.add([&](IAsyncSteps& asi) { done.set_value(); });
+    asi.execute();
+    done.get_future().wait();
+
+    BOOST_CHECK_EQUAL(asi.state<int>("cnt"), 9);
+}
+
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
 //=============================================================================
 
