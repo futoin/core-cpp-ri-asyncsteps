@@ -111,7 +111,7 @@ namespace futoin {
             // Actual add() -> func
             void operator()(IAsyncSteps& asi)
             {
-                if (cond(*this)) {
+                if (!cond || cond(*this)) {
                     handler(*this, asi);
                 } else {
                     continue_loop = false;
@@ -135,6 +135,8 @@ namespace futoin {
                         continue_loop = false;
                         asi.success();
                     }
+                } else {
+                    continue_loop = false;
                 }
             }
 

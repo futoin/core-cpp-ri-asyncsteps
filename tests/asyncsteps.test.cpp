@@ -412,6 +412,168 @@ BOOST_AUTO_TEST_CASE(repeat) // NOLINT
     BOOST_CHECK_EQUAL(asi.state<int>("cnt"), 100);
 }
 
+BOOST_AUTO_TEST_CASE(loop_break) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    using V = std::vector<int>;
+
+    std::promise<void> done;
+    asi.state()["result"] = V();
+
+    asi.loop(
+            [](IAsyncSteps& asi) {
+                auto& result = asi.state<V>("result");
+                result.push_back(1);
+
+                asi.forEach(
+                        V{1, 2, 3, 4},
+                        [](IAsyncSteps& asi, size_t index, const int& val) {
+                            auto& result = asi.state<V>("result");
+                            result.push_back(2);
+
+                            asi.repeat(
+                                    3,
+                                    [](IAsyncSteps& asi, size_t i) {
+                                        auto& result = asi.state<V>("result");
+                                        result.push_back(3);
+
+                                        if (i == 1) {
+                                            if (result.size() == 4) {
+                                                asi.breakLoop();
+                                            } else {
+                                                asi.breakLoop("Outer");
+                                            }
+                                        }
+                                    },
+                                    "Inner");
+                        },
+                        "Middle");
+            },
+            "Outer");
+
+    asi.add([&](IAsyncSteps& asi) { done.set_value(); });
+    asi.execute();
+    done.get_future().wait();
+
+    V required{1, 2, 3, 3, 2, 3, 3};
+    BOOST_CHECK_EQUAL_COLLECTIONS(
+            asi.state<V>("result").begin(),
+            asi.state<V>("result").end(),
+            required.begin(),
+            required.end());
+}
+
+BOOST_AUTO_TEST_CASE(loop_continue) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    using V = std::vector<int>;
+
+    std::promise<void> done;
+    asi.state()["result"] = V();
+
+    asi.loop(
+            [](IAsyncSteps& asi) {
+                auto& result = asi.state<V>("result");
+                result.push_back(1);
+
+                if (result.size() > 1) {
+                    asi.breakLoop();
+                }
+
+                asi.forEach(
+                        V{1, 2, 3, 4},
+                        [](IAsyncSteps& asi, size_t index, const int& val) {
+                            auto& result = asi.state<V>("result");
+                            result.push_back(2);
+
+                            asi.repeat(
+                                    3,
+                                    [](IAsyncSteps& asi, size_t i) {
+                                        auto& result = asi.state<V>("result");
+                                        result.push_back(3);
+
+                                        if (i == 1) {
+                                            if (result.size() == 4) {
+                                                asi.continueLoop();
+                                            } else {
+                                                asi.continueLoop("Outer");
+                                            }
+                                        }
+                                    },
+                                    "Inner");
+                        },
+                        "Middle");
+            },
+            "Outer");
+
+    asi.add([&](IAsyncSteps& asi) { done.set_value(); });
+    asi.execute();
+    done.get_future().wait();
+
+    V required{1, 2, 3, 3, 3, 2, 3, 3, 1};
+    BOOST_CHECK_EQUAL_COLLECTIONS(
+            asi.state<V>("result").begin(),
+            asi.state<V>("result").end(),
+            required.begin(),
+            required.end());
+}
+
+BOOST_AUTO_TEST_CASE(loop_error) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    using V = std::vector<int>;
+
+    std::promise<void> done;
+    asi.state()["result"] = V();
+
+    asi.loop(
+            [&](IAsyncSteps& asi) {
+                auto& result = asi.state<V>("result");
+                result.push_back(1);
+
+                asi.setCancel([&](IAsyncSteps& asi) { done.set_value(); });
+
+                if (result.size() > 1) {
+                    asi.breakLoop();
+                }
+
+                asi.forEach(
+                        V{1, 2, 3, 4},
+                        [](IAsyncSteps& asi, size_t index, const int& val) {
+                            auto& result = asi.state<V>("result");
+                            result.push_back(2);
+
+                            asi.repeat(
+                                    3,
+                                    [](IAsyncSteps& asi, size_t i) {
+                                        auto& result = asi.state<V>("result");
+                                        result.push_back(3);
+
+                                        asi.error("MyError");
+                                    },
+                                    "Inner");
+                        },
+                        "Middle");
+            },
+            "Outer");
+
+    asi.execute();
+    done.get_future().wait();
+
+    V required{1, 2, 3};
+    BOOST_CHECK_EQUAL_COLLECTIONS(
+            asi.state<V>("result").begin(),
+            asi.state<V>("result").end(),
+            required.begin(),
+            required.end());
+}
+
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
 //=============================================================================
 
