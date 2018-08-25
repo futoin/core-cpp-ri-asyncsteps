@@ -28,6 +28,8 @@ using namespace futoin;
 
 BOOST_AUTO_TEST_SUITE(asyncsteps) // NOLINT
 
+const std::chrono::milliseconds TEST_DELAY{100}; // NOLINT
+
 //=============================================================================
 
 BOOST_AUTO_TEST_SUITE(basic) // NOLINT
@@ -226,6 +228,133 @@ BOOST_AUTO_TEST_CASE(handle_errors) // NOLINT
             asi.state<V>("result").end(),
             required.begin(),
             required.end());
+}
+
+BOOST_AUTO_TEST_CASE(set_cancel_success) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    using Promise = std::promise<void>;
+    std::promise<IAsyncSteps*> wait;
+    Promise done;
+
+    size_t count = 0;
+
+    asi.add([&](IAsyncSteps& asi) {
+        ++count;
+        asi.setCancel([](IAsyncSteps&) {});
+        wait.set_value(&asi);
+    });
+    asi.add([&](IAsyncSteps& asi) {
+        ++count;
+        done.set_value();
+    });
+
+    asi.execute();
+
+    const_cast<IAsyncSteps*>(wait.get_future().get())->success();
+
+    done.get_future().wait();
+    BOOST_CHECK_EQUAL(count, 2);
+}
+
+BOOST_AUTO_TEST_CASE(wait_external_error) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    using Promise = std::promise<void>;
+    std::promise<IAsyncSteps*> wait;
+    Promise done;
+
+    size_t count = 0;
+
+    asi.add(
+            [&](IAsyncSteps& asi) {
+                ++count;
+                asi.waitExternal();
+                wait.set_value(&asi);
+            },
+            [&](IAsyncSteps& asi, ErrorCode err) {
+                ++count;
+                done.set_value();
+            });
+    asi.add([&](IAsyncSteps& asi) {
+        count += 5;
+        done.set_value();
+    });
+
+    asi.execute();
+
+    try {
+        const_cast<IAsyncSteps*>(wait.get_future().get())->error("SomeError");
+    } catch (...) {
+        // pass
+    }
+
+    done.get_future().wait();
+    BOOST_CHECK_EQUAL(count, 2);
+}
+
+BOOST_AUTO_TEST_CASE(set_timeout_success) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    using Promise = std::promise<void>;
+    std::promise<IAsyncSteps*> wait;
+    Promise done;
+
+    size_t count = 0;
+
+    asi.add([&](IAsyncSteps& asi) {
+        ++count;
+        asi.setTimeout(TEST_DELAY);
+        wait.set_value(&asi);
+    });
+    asi.add([&](IAsyncSteps& asi) {
+        ++count;
+        done.set_value();
+    });
+
+    asi.execute();
+
+    const_cast<IAsyncSteps*>(wait.get_future().get())->success();
+
+    done.get_future().wait();
+    BOOST_CHECK_EQUAL(count, 2);
+}
+
+BOOST_AUTO_TEST_CASE(set_timeout_fail) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    using Promise = std::promise<void>;
+    Promise done;
+
+    size_t count = 0;
+
+    asi.add(
+            [&](IAsyncSteps& asi) {
+                ++count;
+                asi.setTimeout(TEST_DELAY);
+            },
+            [&](IAsyncSteps& asi, ErrorCode err) {
+                ++count;
+                BOOST_CHECK_EQUAL(err, "Timeout");
+                asi.success();
+            });
+    asi.add([&](IAsyncSteps& asi) {
+        ++count;
+        done.set_value();
+    });
+
+    asi.execute();
+
+    done.get_future().wait();
+    BOOST_CHECK_EQUAL(count, 3);
 }
 
 BOOST_AUTO_TEST_CASE(catch_trace) // NOLINT

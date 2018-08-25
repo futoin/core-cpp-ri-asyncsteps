@@ -108,6 +108,7 @@ namespace futoin {
         //---
         struct BaseAsyncSteps::ExtLoopState : LoopState
         {
+            // Actual add() -> func
             void operator()(IAsyncSteps& asi)
             {
                 if (cond(*this)) {
@@ -116,6 +117,7 @@ namespace futoin {
                     continue_loop = false;
                 }
             }
+            // Actual add() -> on_error
             void operator()(IAsyncSteps& asi, ErrorCode err)
             {
                 if (std::strcmp(err, errors::LoopCont) == 0) {
@@ -206,8 +208,8 @@ namespace futoin {
             void setTimeout(std::chrono::milliseconds to) noexcept override
             {
                 sanity_check();
-                limit_handle_ = root_->impl_->async_tool_.deferred(
-                        to, [this]() { this->cancel(); });
+                auto& async_tool = root_->impl_->async_tool_;
+                limit_handle_ = async_tool.deferred(to, std::ref(*this));
             }
 
             void setCancel(CancelPass cb) noexcept override
@@ -266,6 +268,16 @@ namespace futoin {
                 sanity_check();
 
                 return root_->newInstance();
+            }
+
+            // Dirty hack: the step serves as timeout functor (base operator()
+            // is hidden)
+            void operator()()
+            {
+                try {
+                    this->error(errors::Timeout);
+                } catch (...) {
+                }
             }
 
         protected:
@@ -493,9 +505,7 @@ namespace futoin {
                 on_invalid_call("AsyncSteps instance is already executed.");
             }
 
-            // exec_handle_ = async_tool_.immediate(std::ref(*this));
-            exec_handle_ = async_tool_.immediate(
-                    [this]() { this->execute_handler(); });
+            exec_handle_ = async_tool_.immediate(std::ref(*this));
         }
 
         void BaseAsyncSteps::Impl::execute_handler() noexcept
