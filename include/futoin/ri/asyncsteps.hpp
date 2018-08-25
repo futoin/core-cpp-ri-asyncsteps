@@ -60,6 +60,7 @@ namespace futoin {
             BaseAsyncSteps(IAsyncTool&) noexcept;
 
         private:
+            struct ExtLoopState;
             class ParallelStep;
             class Protector;
             struct Impl;

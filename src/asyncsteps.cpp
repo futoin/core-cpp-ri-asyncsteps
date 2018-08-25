@@ -18,6 +18,7 @@
 #include <futoin/ri/asyncsteps.hpp>
 
 #include <cassert>
+#include <cstring>
 #include <deque>
 #include <iostream>
 #include <memory>
@@ -60,6 +61,20 @@ namespace futoin {
             void handle_success() noexcept;
             void handle_error(ErrorCode code) noexcept;
             void handle_cancel() noexcept;
+            void operator()() noexcept
+            {
+                execute_handler();
+            }
+
+            template<typename Q>
+            void cond_queue_pop(Q& q)
+            {
+                auto loop_state = q.front()->loop_state_.get();
+
+                if ((loop_state == nullptr) || !loop_state->continue_loop) {
+                    q.pop_front();
+                }
+            }
 
             IAsyncTool& async_tool_;
             NextArgs next_args_;
@@ -85,6 +100,40 @@ namespace futoin {
 
         private:
             State& state_;
+        };
+
+        //---
+        struct BaseAsyncSteps::ExtLoopState : LoopState
+        {
+            void operator()(IAsyncSteps& asi)
+            {
+                if (cond(*this)) {
+                    handler(*this, asi);
+                } else {
+                    continue_loop = false;
+                }
+            }
+            void operator()(IAsyncSteps& asi, ErrorCode err)
+            {
+                if (std::strcmp(err, errors::LoopCont) == 0) {
+                    auto error_label = asi.state().error_loop_label;
+
+                    if ((error_label == nullptr)
+                        || (strcmp(error_label, label) == 0)) {
+                        asi.success();
+                    }
+                } else if (std::strcmp(err, errors::LoopBreak) == 0) {
+                    auto error_label = asi.state().error_loop_label;
+
+                    if ((error_label == nullptr)
+                        || (strcmp(error_label, label) == 0)) {
+                        continue_loop = false;
+                        asi.success();
+                    }
+                }
+            }
+
+            bool continue_loop{true};
         };
 
         //---
@@ -193,7 +242,7 @@ namespace futoin {
                 step->data_.func_ = &Protector::loop_handler;
 
                 auto& pls = step->loop_state_;
-                pls.reset(new LoopState);
+                pls.reset(new ExtLoopState);
                 return *pls;
             }
 
@@ -201,8 +250,12 @@ namespace futoin {
             {
                 auto& that = static_cast<Protector&>(asi);
                 auto& ls = *(that.loop_state_);
-                // TODO
-                (void) ls;
+
+                auto step = new Protector(*(that.root_));
+                that.queue_.emplace_back(step);
+
+                step->data_.func_ = std::ref(ls);
+                step->data_.on_error_ = std::ref(ls);
             }
 
             std::unique_ptr<IAsyncSteps> newInstance() noexcept override
@@ -219,7 +272,7 @@ namespace futoin {
             CancelPass::Storage on_cancel_storage_;
             StepData data_;
             CancelCallback on_cancel_;
-            std::unique_ptr<LoopState> loop_state_;
+            std::unique_ptr<ExtLoopState> loop_state_;
             IAsyncTool::Handle limit_handle_;
         };
 
@@ -419,7 +472,7 @@ namespace futoin {
             step->data_.func_ = &Protector::loop_handler;
 
             auto& pls = step->loop_state_;
-            pls.reset(new LoopState);
+            pls.reset(new ExtLoopState);
             return *pls;
         }
 
@@ -436,6 +489,7 @@ namespace futoin {
                 on_invalid_call("AsyncSteps instance is already executed.");
             }
 
+            // exec_handle_ = async_tool_.immediate(std::ref(*this));
             exec_handle_ = async_tool_.immediate(
                     [this]() { this->execute_handler(); });
         }
@@ -503,7 +557,7 @@ namespace futoin {
                 current_ = stack_.top();
 
                 auto& q = current_->queue_;
-                q.pop_front();
+                cond_queue_pop(q);
 
                 if (!q.empty()) {
                     schedule_exec();
@@ -514,7 +568,7 @@ namespace futoin {
             }
 
             // Got to root queue
-            queue_.pop_front();
+            cond_queue_pop(queue_);
 
             if (!queue_.empty()) {
                 schedule_exec();
