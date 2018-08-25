@@ -60,8 +60,8 @@ namespace futoin {
 
             void schedule_exec() noexcept;
             void execute_handler() noexcept;
-            void handle_success() noexcept;
-            void handle_error(ErrorCode code) noexcept;
+            void handle_success(Protector* current) noexcept;
+            void handle_error(Protector* current, ErrorCode code) noexcept;
             void handle_cancel() noexcept;
             void operator()() noexcept
             {
@@ -83,7 +83,6 @@ namespace futoin {
             Queue queue_;
             Stack stack_;
             IAsyncTool::Handle exec_handle_;
-            Protector* current_ = nullptr;
             State::CatchTrace& catch_trace;
             bool in_exec_ = false;
         };
@@ -181,13 +180,13 @@ namespace futoin {
             void handle_success() noexcept override
             {
                 sanity_check();
-                root_->impl_->handle_success();
+                root_->impl_->handle_success(this);
             }
 
             void handle_error(ErrorCode code) override
             {
                 sanity_check();
-                root_->impl_->handle_error(code);
+                root_->impl_->handle_error(this, code);
             }
 
             NextArgs& nextargs() noexcept override
@@ -535,7 +534,6 @@ namespace futoin {
             }
 
             stack_.push(next);
-            current_ = next;
             const auto slen = stack_.size();
 
             try {
@@ -558,22 +556,22 @@ namespace futoin {
             }
         }
 
-        void BaseAsyncSteps::Impl::handle_success() noexcept
+        void BaseAsyncSteps::Impl::handle_success(Protector* current) noexcept
         {
-            if (stack_.empty() || (current_ != stack_.top())) {
+            if (stack_.empty() || (current != stack_.top())) {
                 on_invalid_call("success() out of order");
             }
 
-            if (!current_->queue_.empty()) {
+            if (!current->queue_.empty()) {
                 on_invalid_call("success() with sub-steps");
             }
 
             stack_.pop();
 
             while (!stack_.empty()) {
-                current_ = stack_.top();
+                current = stack_.top();
 
-                auto& q = current_->queue_;
+                auto& q = current->queue_;
                 cond_queue_pop(q);
 
                 if (!q.empty()) {
@@ -592,7 +590,8 @@ namespace futoin {
             }
         }
 
-        void BaseAsyncSteps::Impl::handle_error(ErrorCode code) noexcept
+        void BaseAsyncSteps::Impl::handle_error(
+                Protector* current, ErrorCode code) noexcept
         {
             if (exec_handle_) {
                 // Out-of-sequence error
@@ -605,29 +604,29 @@ namespace futoin {
                 return;
             }
 
-            if (current_ != stack_.top()) {
+            if (current != stack_.top()) {
                 on_invalid_call("error() out of order");
             }
 
             for (;;) {
-                current_->queue_.clear();
+                current->queue_.clear();
 
-                current_->limit_handle_.cancel();
+                current->limit_handle_.cancel();
 
-                auto& on_cancel = current_->on_cancel_;
+                auto& on_cancel = current->on_cancel_;
 
                 if (on_cancel) {
-                    on_cancel(*current_);
-                    current_->on_cancel_ = nullptr;
+                    on_cancel(*current);
+                    current->on_cancel_ = nullptr;
                 }
 
-                ErrorHandler on_error{std::move(current_->data_.on_error_)};
+                ErrorHandler on_error{std::move(current->data_.on_error_)};
 
                 if (on_error) {
                     try {
                         in_exec_ = true;
                         const auto slen = stack_.size();
-                        on_error(*current_, code);
+                        on_error(*current, code);
                         in_exec_ = false;
 
                         if (stack_.size() < slen) {
@@ -635,7 +634,7 @@ namespace futoin {
                             return;
                         }
 
-                        if (!current_->queue_.empty()) {
+                        if (!current->queue_.empty()) {
                             schedule_exec();
                             return;
                         }
@@ -652,11 +651,10 @@ namespace futoin {
                     break;
                 }
 
-                current_ = stack_.top();
+                current = stack_.top();
             }
 
             queue_.clear();
-            current_ = nullptr;
         }
 
         void BaseAsyncSteps::Impl::handle_cancel() noexcept
