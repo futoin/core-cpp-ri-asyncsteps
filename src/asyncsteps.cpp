@@ -19,6 +19,7 @@
 
 #include <cstring>
 #include <deque>
+#include <future>
 #include <iostream>
 #include <memory>
 #include <stack>
@@ -618,7 +619,7 @@ namespace futoin {
                 } else if (!next->queue_.empty()) {
                     schedule_exec();
                 } else if (!next->on_cancel_ && !next->limit_handle_) {
-                    next->success();
+                    next->handle_success();
                 }
 
                 in_exec_ = false;
@@ -631,6 +632,17 @@ namespace futoin {
 
         void BaseAsyncSteps::Impl::handle_success(Protector* current) noexcept
         {
+            if (!async_tool_.is_same_thread()) {
+                std::promise<void> done;
+                auto task = [this, current, &done]() {
+                    this->handle_success(current);
+                    done.set_value();
+                };
+                async_tool_.immediate(std::ref(task));
+                done.get_future().wait();
+                return;
+            }
+
             if (!current->queue_.empty()) {
                 on_invalid_call("success() with sub-steps");
             }
@@ -662,6 +674,17 @@ namespace futoin {
         void BaseAsyncSteps::Impl::handle_error(
                 Protector* current, ErrorCode code) noexcept
         {
+            if (!async_tool_.is_same_thread()) {
+                std::promise<void> done;
+                auto task = [this, current, code, &done]() {
+                    this->handle_error(current, code);
+                    done.set_value();
+                };
+                async_tool_.immediate(std::ref(task));
+                done.get_future().wait();
+                return;
+            }
+
             if (exec_handle_) {
                 // Out-of-sequence error
                 handle_cancel();
@@ -728,8 +751,18 @@ namespace futoin {
 
         void BaseAsyncSteps::Impl::handle_cancel() noexcept
         {
-            exec_handle_.cancel();
-            queue_.clear();
+            if (async_tool_.is_same_thread()) {
+                exec_handle_.cancel();
+                queue_.clear();
+            } else {
+                std::promise<void> done;
+                auto task = [this, &done]() {
+                    this->handle_cancel();
+                    done.set_value();
+                };
+                async_tool_.immediate(std::ref(task));
+                done.get_future().wait();
+            }
         }
 
         //---
