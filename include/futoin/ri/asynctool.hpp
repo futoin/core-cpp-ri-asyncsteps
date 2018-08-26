@@ -41,7 +41,7 @@ namespace futoin {
             /**
              * @brief Initialize for external thread loop
              */
-            AsyncTool(std::function<void()> poke_external) noexcept;
+            AsyncTool(Callback poke_external) noexcept;
 
             ~AsyncTool() noexcept override;
             AsyncTool(const AsyncTool&) = delete;

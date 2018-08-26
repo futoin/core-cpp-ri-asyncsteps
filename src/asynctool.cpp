@@ -278,7 +278,7 @@ namespace futoin {
                 }
             };
 
-            using HandleTask = std::function<void()>;
+            using HandleTask = Callback;
 
             Impl() : is_shutdown(false) {}
 
@@ -380,7 +380,7 @@ namespace futoin {
 
             //---
             std::atomic_bool is_shutdown{false};
-            std::function<void()> poke_cb;
+            Callback poke_cb;
             std::thread::id reactor_thread_id;
             std::unique_ptr<std::thread> thread;
         };
@@ -394,8 +394,7 @@ namespace futoin {
             impl_->reactor_thread_id = impl_->thread->get_id();
         }
 
-        AsyncTool::AsyncTool(std::function<void()> poke_external) noexcept :
-            impl_(new Impl)
+        AsyncTool::AsyncTool(Callback poke_external) noexcept : impl_(new Impl)
         {
             impl_->poke_cb = std::move(poke_external);
             impl_->reactor_thread_id = std::this_thread::get_id();
