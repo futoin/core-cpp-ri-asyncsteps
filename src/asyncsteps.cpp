@@ -295,7 +295,7 @@ namespace futoin {
 
             // Dirty hack: the step serves as timeout functor (base
             // operator() is hidden)
-            void operator()()
+            void operator()() noexcept
             {
                 try {
                     this->error(errors::Timeout);
@@ -345,35 +345,44 @@ namespace futoin {
                 }
             }
 
+            Protector* add_substep() noexcept
+            {
+                items_.emplace_back(root_->state(), root_->impl_->async_tool_);
+
+                auto& root_step = items_.back();
+                auto& root_data = root_step.add_step();
+
+                root_data.func_ = [](IAsyncSteps&) {};
+                root_data.on_error_ = std::ref(*this);
+
+                // actual step
+                auto step = new Protector(root_step);
+                root_step.impl_->queue_[0]->queue_.emplace_back(step);
+                return step;
+            }
+
             StepData& add_step() noexcept override
             {
                 sanity_check();
 
-                items_.emplace_back(root_->state(), root_->impl_->async_tool_);
-                return items_.back().add_step();
+                return add_substep()->data_;
             }
 
             LoopState& add_loop() noexcept override
             {
                 sanity_check();
 
-                items_.emplace_back(root_->state(), root_->impl_->async_tool_);
-                return items_.back().add_loop();
+                auto step = add_substep();
+                step->data_.func_ = &Protector::loop_handler;
+
+                auto& pls = step->loop_state_;
+                pls.reset(new ExtLoopState);
+                return *pls;
             }
 
             IAsyncSteps& parallel(ErrorPass /*on_error*/) noexcept override
             {
                 on_invalid_call("parallel() on parallel()");
-            }
-
-            void handle_success() noexcept override
-            {
-                on_invalid_call("success() on parallel()");
-            }
-
-            void handle_error(ErrorCode /*code*/) override
-            {
-                on_invalid_call("error() on parallel()");
             }
 
             NextArgs& nextargs() noexcept override
@@ -396,14 +405,30 @@ namespace futoin {
                 on_invalid_call("waitExternal() on parallel()");
             }
 
-            // Dirty hack: sub-step completion (hides base operators)
-            void operator()(IAsyncSteps& /*asi*/)
+            // Dirty hack: sub-step completion
+            void operator()(IAsyncSteps& /*asi*/) noexcept
             {
                 ++completed_;
 
                 if (completed_ == items_.size()) {
-                    root_->impl_->handle_success(this);
+                    root_->impl_->async_tool_.immediate(std::ref(*this));
                 }
+            }
+
+            // Dirty hack: sub-step error
+            void operator()(IAsyncSteps& /*asi*/, ErrorCode err) noexcept
+            {
+                for (auto& v : items_) {
+                    v.cancel();
+                }
+
+                root_->impl_->handle_error(this, err);
+            }
+
+            // Dirty hack: final completion
+            void operator()() noexcept
+            {
+                root_->impl_->handle_success(this);
             }
 
         protected:
@@ -413,7 +438,7 @@ namespace futoin {
             void process() noexcept
             {
                 for (auto& v : items_) {
-                    v.add(std::ref(*this));
+                    v.add(ExecPass(std::ref(*this)));
                     v.impl_->schedule_exec();
                 }
                 Protector::waitExternal();
