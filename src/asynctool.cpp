@@ -18,7 +18,6 @@
 #include <futoin/ri/asynctool.hpp>
 
 #include <cassert>
-#include <deque>
 #include <iostream>
 #include <list>
 #include <queue>
@@ -37,6 +36,219 @@ namespace futoin {
         using lock_guard = std::lock_guard<std::mutex>;
 
         constexpr size_t AsyncTool::BURST_COUNT;
+
+        template<
+                typename T,
+                size_t AllocStepMin = AsyncTool::BURST_COUNT,
+                size_t AllocStepMax = AllocStepMin * 100>
+        class optimized_list_allocator
+        {
+        public:
+            optimized_list_allocator() noexcept = default;
+
+            ~optimized_list_allocator() noexcept
+            {
+                for (auto v : allocs_) {
+                    delete[] v;
+                }
+                allocs_.clear();
+            }
+
+            optimized_list_allocator(const optimized_list_allocator&) = delete;
+            optimized_list_allocator& operator=(
+                    const optimized_list_allocator&) = delete;
+            optimized_list_allocator(optimized_list_allocator&&) = delete;
+            optimized_list_allocator&& operator=(optimized_list_allocator&&) =
+                    delete;
+
+            T* alloc() noexcept
+            {
+                if (last_free_ == 0) {
+                    if (last_size_ == 0) {
+                        last_size_ = AllocStepMin;
+                    } else {
+                        last_size_ *= 2;
+
+                        if (last_size_ > AllocStepMax) {
+                            last_size_ = AllocStepMax;
+                        }
+                    }
+
+                    last_alloc_ = new T[last_size_];
+                    last_free_ = last_size_;
+                    allocs_.push_back(last_alloc_);
+                }
+
+                --last_free_;
+                return last_alloc_ + last_free_;
+            }
+
+        private:
+            std::list<T*> allocs_;
+            T* last_alloc_{nullptr};
+            size_t last_free_{0};
+            size_t last_size_{0};
+        };
+
+        template<typename T>
+        struct optimized_list_node
+        {
+            T data;
+            optimized_list_node* prev{this};
+            optimized_list_node* next{this};
+        };
+
+        template<
+                typename T,
+                typename Allocator =
+                        optimized_list_allocator<optimized_list_node<T>>>
+        class optimized_list
+        {
+        public:
+            using allocator = Allocator;
+            using node = optimized_list_node<T>;
+
+            struct iterator
+            {
+                iterator() noexcept = default;
+
+                explicit iterator(node* n) noexcept : node_(n) {}
+
+                T* operator->()
+                {
+                    return &(node_->data);
+                }
+
+                const T* operator->() const
+                {
+                    return &(node_->data);
+                }
+
+                T& operator*()
+                {
+                    return node_->data;
+                }
+
+                void operator--()
+                {
+                    node_ = node_->prev;
+                }
+
+                void operator++()
+                {
+                    node_ = node_->next;
+                }
+
+                bool operator==(const iterator& other) const
+                {
+                    return node_ == other.node_;
+                }
+
+                bool operator!=(const iterator& other) const
+                {
+                    return node_ != other.node_;
+                }
+
+                node* node_;
+            };
+
+            optimized_list(Allocator& allocator) : allocator_(allocator) {}
+
+            iterator begin()
+            {
+                return iterator(anchor_.next);
+            }
+
+            iterator end()
+            {
+                return iterator(&anchor_);
+            }
+
+            void emplace_front()
+            {
+                auto node = allocator_.alloc();
+                node->next = anchor_.next;
+                node->prev = &anchor_;
+                node->next->prev = node;
+                anchor_.next = node;
+                ++size_;
+            }
+
+            void emplace_back()
+            {
+                auto node = allocator_.alloc();
+                node->next = &anchor_;
+                node->prev = anchor_.prev;
+                node->prev->next = node;
+                anchor_.prev = node;
+                ++size_;
+            }
+
+            void shrink_to_fit() {}
+
+            bool empty() const
+            {
+                return size_ == 0;
+            }
+
+            void clear() {}
+
+            size_t size() const
+            {
+                return size_;
+            }
+
+            void splice(iterator pos, optimized_list& other, iterator other_pos)
+            {
+                node* src = other_pos.node_;
+                node* dst = pos.node_;
+
+                src->prev->next = src->next;
+                src->next->prev = src->prev;
+                other.size_--;
+
+                src->prev = dst->prev;
+                src->next = dst;
+                dst->prev = src;
+                src->prev->next = src;
+                ++size_;
+            }
+
+            void splice(
+                    iterator pos,
+                    optimized_list& other,
+                    iterator other_start,
+                    iterator other_end)
+            {
+                node* src_start = other_start.node_;
+                --other_end;
+                node* src_end = other_end.node_;
+                node* dst = pos.node_;
+
+                src_start->prev->next = src_end->next;
+                src_end->next->prev = src_start->prev;
+
+                src_start->prev = dst->prev;
+                src_end->next = dst;
+                dst->prev = src_end;
+                src_start->prev->next = src_start;
+
+                //---
+                size_t total = 1;
+
+                for (; src_start != src_end; src_start = src_start->next) {
+                    ++total;
+                }
+
+                other.size_ -= total;
+                size_ += total;
+            }
+
+        private:
+            Allocator& allocator_;
+            node anchor_;
+            size_t size_{0};
+        };
 
         struct AsyncTool::Impl
         {
@@ -135,13 +347,18 @@ namespace futoin {
             }
 
             //---
-            using UniversalHeap = std::list<UniversalHandle>;
+            // using UniversalHeap = std::list<UniversalHandle>;
+
+            using UniversalAllocator =
+                    optimized_list<UniversalHandle>::allocator;
+            using UniversalHeap = optimized_list<UniversalHandle>;
 
             HandleCookie current_cookie{1};
 
-            UniversalHeap immed_queue;
-            UniversalHeap defer_used_heap;
-            UniversalHeap universal_free_heep;
+            UniversalAllocator handle_allocator_;
+            UniversalHeap immed_queue{handle_allocator_};
+            UniversalHeap defer_used_heap{handle_allocator_};
+            UniversalHeap universal_free_heep{handle_allocator_};
             size_t canceled_handles{0};
 
             using DeferredQueueItem = UniversalHeap::iterator;

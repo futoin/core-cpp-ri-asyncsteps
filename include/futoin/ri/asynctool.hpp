@@ -31,7 +31,7 @@ namespace futoin {
         class AsyncTool final : public IAsyncTool
         {
         public:
-            static constexpr size_t BURST_COUNT = 100U;
+            static constexpr size_t BURST_COUNT = 128U;
 
             /**
              * @brief Initialize with internal thread loop

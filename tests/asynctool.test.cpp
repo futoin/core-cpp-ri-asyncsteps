@@ -441,7 +441,7 @@ BOOST_AUTO_TEST_CASE(performance) // NOLINT
                   << " handle_task_count=" << stats.handle_task_count
                   << std::endl;
         BOOST_CHECK_LE(stats.immediate_used, 6);
-        BOOST_CHECK_LE(stats.deferred_used, 18);
+        BOOST_CHECK_LE(stats.deferred_used, 20);
         BOOST_CHECK_LE(stats.universal_free, AsyncTool::BURST_COUNT * 2);
         BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
     };
