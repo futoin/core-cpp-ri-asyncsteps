@@ -41,34 +41,27 @@ namespace futoin {
 
         struct AsyncTool::Impl
         {
-            struct ImmediateHandle : InternalHandle
+            struct UniversalHandle : InternalHandle
             {
-                ImmediateHandle(Callback&& cb, HandleCookie cookie) noexcept :
+                UniversalHandle(Callback&& cb, HandleCookie cookie) noexcept :
                     InternalHandle(std::forward<Callback>(cb)), cookie(cookie)
                 {}
 
-                ImmediateHandle(ImmediateHandle&& other) noexcept = default;
-                ImmediateHandle& operator=(ImmediateHandle&& other) noexcept =
-                        default;
-
-                ~ImmediateHandle() noexcept = default;
-
-                HandleCookie cookie;
-            };
-
-            struct DeferredHandle : ImmediateHandle
-            {
-                DeferredHandle(
+                UniversalHandle(
                         Callback&& cb,
                         HandleCookie cookie,
                         steady_clock::time_point when) :
-                    ImmediateHandle(std::forward<Callback>(cb), cookie),
-                    when(when)
+                    InternalHandle(std::forward<Callback>(cb)),
+                    cookie(cookie), when(when)
                 {}
 
-                DeferredHandle(DeferredHandle&&) noexcept = default;
-                DeferredHandle& operator=(DeferredHandle&&) noexcept = default;
+                UniversalHandle(UniversalHandle&& other) noexcept = default;
+                UniversalHandle& operator=(UniversalHandle&& other) noexcept =
+                        default;
 
+                ~UniversalHandle() noexcept = default;
+
+                HandleCookie cookie;
                 steady_clock::time_point when;
             };
 
@@ -150,19 +143,19 @@ namespace futoin {
             }
 
             //---
-            std::deque<Callback> burst_queue;
+            using UniversalAllocator =
+                    boost::fast_pool_allocator<UniversalHandle>;
+            using UniversalHeap =
+                    std::list<UniversalHandle, UniversalAllocator>;
 
             HandleCookie current_cookie{1};
-            std::deque<ImmediateHandle> immed_queue;
 
-            using DeferredAllocator =
-                    boost::fast_pool_allocator<DeferredHandle>;
-            using DeferredHeap = std::list<DeferredHandle, DeferredAllocator>;
-            DeferredHeap defer_used_heap;
-            DeferredHeap defer_free_heap;
+            UniversalHeap immed_queue;
+            UniversalHeap defer_used_heap;
+            UniversalHeap universal_free_heep;
             size_t canceled_handles{0};
 
-            using DeferredQueueItem = DeferredHeap::iterator;
+            using DeferredQueueItem = UniversalHeap::iterator;
             using DeferredPriorityQueue = std::priority_queue<
                     DeferredQueueItem,
                     std::vector<DeferredQueueItem>,
@@ -217,11 +210,25 @@ namespace futoin {
                 return res.get_future().get();
             }
 
+            auto& free_heap = impl_->universal_free_heep;
+            auto& q = impl_->immed_queue;
+
+            Impl::DeferredQueueItem it;
             auto cookie = impl_->get_cookie();
 
-            auto& q = impl_->immed_queue;
-            q.emplace_back(std::forward<Callback>(cb), cookie);
-            auto& iq = q.back();
+            if (free_heap.empty()) {
+                q.emplace_back(std::forward<Callback>(cb), cookie);
+                it = q.end();
+                --it;
+            } else {
+                it = free_heap.begin();
+                auto& h = *it;
+                h.callback = std::forward<Callback>(cb);
+                h.cookie = cookie;
+                q.splice(q.end(), free_heap, it);
+            }
+
+            auto& iq = *it;
             return {iq, *this, cookie};
         }
 
@@ -252,7 +259,7 @@ namespace futoin {
 
             auto when = steady_clock::now() + delay;
 
-            auto& free_heap = impl_->defer_free_heap;
+            auto& free_heap = impl_->universal_free_heep;
             auto& used_heap = impl_->defer_used_heap;
             auto& q = impl_->defer_queue;
 
@@ -265,8 +272,10 @@ namespace futoin {
                 it = used_heap.begin();
             } else {
                 it = free_heap.begin();
-                *it = Impl::DeferredHandle(
-                        std::forward<Callback>(cb), cookie, when);
+                auto& h = *it;
+                h.callback = std::forward<Callback>(cb);
+                h.cookie = cookie;
+                h.when = when;
                 used_heap.splice(used_heap.begin(), free_heap, it);
             }
 
@@ -334,19 +343,29 @@ namespace futoin {
 
         void AsyncTool::Impl::iterate() noexcept
         {
+            auto immed_begin = immed_queue.begin();
+            auto iter = immed_begin;
+
             // process immediates
-            for (size_t i = BURST_COUNT; (i > 0) && !immed_queue.empty(); --i) {
-                auto& ih = immed_queue.front();
-                auto& cookie = ih.cookie;
+            for (size_t i = BURST_COUNT; (i > 0) && (iter != immed_queue.end());
+                 --i, ++iter) {
+                auto& h = *iter;
+                auto& cookie = h.cookie;
 
                 if (cookie != 0) {
                     cookie = 0;
-                    ih.callback();
+                    h.callback();
                 } else {
                     --canceled_handles;
                 }
+            }
 
-                immed_queue.pop_front();
+            if (immed_begin != iter) {
+                universal_free_heep.splice(
+                        universal_free_heep.begin(),
+                        immed_queue,
+                        immed_begin,
+                        iter);
             }
 
             const auto now = steady_clock::now();
@@ -354,23 +373,24 @@ namespace futoin {
             // NOTE: it's assumed deferred calls are almost always canceled, but
             // not executed!
             for (size_t i = BURST_COUNT; (i > 0) && !defer_queue.empty(); --i) {
-                auto& h_it = defer_queue.top();
+                iter = defer_queue.top();
 
-                auto& cookie = h_it->cookie;
+                auto& h = *iter;
+                auto& cookie = h.cookie;
 
                 if (cookie != 0) {
-                    if (h_it->when > now) {
+                    if (h.when > now) {
                         break;
                     }
 
                     cookie = 0;
-                    h_it->callback();
+                    h.callback();
                 } else {
                     --canceled_handles;
                 }
 
-                defer_free_heap.splice(
-                        defer_free_heap.begin(), defer_used_heap, h_it);
+                universal_free_heep.splice(
+                        universal_free_heep.begin(), defer_used_heap, iter);
                 defer_queue.pop();
             }
 
@@ -389,8 +409,8 @@ namespace futoin {
                         --canceled_handles;
                         auto to_move = iter;
                         ++iter;
-                        defer_free_heap.splice(
-                                defer_free_heap.begin(),
+                        universal_free_heep.splice(
+                                universal_free_heep.begin(),
                                 defer_used_heap,
                                 to_move);
                     }
@@ -409,17 +429,17 @@ namespace futoin {
 
             if (internal != nullptr) {
                 ha.internal() = nullptr;
-                auto immed = static_cast<Impl::ImmediateHandle*>(internal);
+                auto universal = static_cast<Impl::UniversalHandle*>(internal);
                 auto ha_cookie = ha.cookie();
 
-                if (immed->cookie != ha_cookie) {
+                if (universal->cookie != ha_cookie) {
                     // pass
                 } else if (!is_same_thread()) {
                     std::promise<void> res;
-                    auto func = [this, immed, ha_cookie, &res]() {
-                        if (immed->cookie == ha_cookie) {
+                    auto func = [this, universal, ha_cookie, &res]() {
+                        if (universal->cookie == ha_cookie) {
                             ++(impl_->canceled_handles);
-                            immed->cookie = 0;
+                            universal->cookie = 0;
                         }
                         res.set_value();
                     };
@@ -429,7 +449,7 @@ namespace futoin {
                     res.get_future().wait();
                 } else {
                     ++(impl_->canceled_handles);
-                    immed->cookie = 0;
+                    universal->cookie = 0;
                 }
             }
         }
@@ -444,9 +464,9 @@ namespace futoin {
                 return false;
             }
 
-            auto immed = static_cast<Impl::ImmediateHandle*>(internal);
+            auto universal = static_cast<Impl::UniversalHandle*>(internal);
 
-            return immed->cookie == ha.cookie();
+            return universal->cookie == ha.cookie();
         }
 
         AsyncTool::Stats AsyncTool::stats() noexcept
@@ -456,7 +476,7 @@ namespace futoin {
             return {
                     impl_->immed_queue.size(),
                     impl_->defer_used_heap.size(),
-                    impl_->defer_free_heap.size(),
+                    impl_->universal_free_heep.size(),
                     impl_->handle_tasks.read_available(),
             };
         }
@@ -464,11 +484,7 @@ namespace futoin {
         void AsyncTool::shrink_to_fit() noexcept
         {
             if (is_same_thread()) {
-                if (impl_->immed_queue.empty()) {
-                    impl_->immed_queue.shrink_to_fit();
-                }
-
-                impl_->defer_free_heap.clear();
+                impl_->universal_free_heep.clear();
             } else {
                 std::promise<void> res;
                 auto func = [this, &res]() {

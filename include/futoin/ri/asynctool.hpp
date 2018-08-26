@@ -58,9 +58,9 @@ namespace futoin {
 
             struct Stats
             {
-                size_t immediate_count;
+                size_t immediate_used;
                 size_t deferred_used;
-                size_t deferred_free;
+                size_t universal_free;
                 size_t handle_task_count;
             };
 

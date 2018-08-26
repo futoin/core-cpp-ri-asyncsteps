@@ -403,13 +403,14 @@ BOOST_AUTO_TEST_CASE(performance) // NOLINT
                   << " 3=" << step_emu3.count << std::endl;
 
         std::cout << "Stats: " << std::endl
-                  << " immediate_count=" << stats.immediate_count << std::endl
+                  << " immediate_used=" << stats.immediate_used << std::endl
                   << " deferred_used=" << stats.deferred_used << std::endl
-                  << " deferred_free=" << stats.deferred_free << std::endl
+                  << " universal_free=" << stats.universal_free << std::endl
                   << " handle_task_count=" << stats.handle_task_count
                   << std::endl;
-        BOOST_CHECK_LE(stats.immediate_count, 6);
-        BOOST_CHECK_LE(stats.deferred_used + stats.deferred_free, 18);
+        BOOST_CHECK_LE(stats.immediate_used, 6);
+        BOOST_CHECK_LE(stats.deferred_used, 18);
+        BOOST_CHECK_LE(stats.universal_free, AsyncTool::BURST_COUNT * 2);
         BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
     };
 
@@ -464,16 +465,16 @@ BOOST_AUTO_TEST_CASE(stress) // NOLINT
         std::cout << "Step iterations: " << iterations << std::endl;
 
         std::cout << "Stats: " << std::endl
-                  << " immediate_count=" << stats.immediate_count << std::endl
+                  << " immediate_used=" << stats.immediate_used << std::endl
                   << " deferred_used=" << stats.deferred_used << std::endl
-                  << " deferred_free=" << stats.deferred_free << std::endl
+                  << " universal_free=" << stats.universal_free << std::endl
                   << " handle_task_count=" << stats.handle_task_count
                   << std::endl;
 
         BOOST_CHECK_GT(iterations, 1e4);
-        BOOST_CHECK_LE(stats.immediate_count, STEP_COUNT * 2);
+        BOOST_CHECK_LE(stats.immediate_used, STEP_COUNT * 2);
         BOOST_CHECK_LE(
-                stats.deferred_used + stats.deferred_free, STEP_COUNT * 3);
+                stats.deferred_used + stats.universal_free, STEP_COUNT * 3);
         BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
     };
 
