@@ -243,50 +243,79 @@ BOOST_AUTO_TEST_CASE(immediate_cancel) // NOLINT
 {
     AsyncTool at;
 
-    std::atomic_int val{0};
-    std::atomic_int fired{0};
-    AsyncTool::Handle handle;
+    struct
+    {
+        std::atomic_int val{0};
+        std::atomic_int fired{0};
+        AsyncTool::Handle handle;
 
-    std::promise<void> ready_to_cancel;
-    std::promise<void> canceled;
-    std::promise<void> ready_to_test;
+        std::promise<void> ready_to_cancel;
+        std::promise<void> canceled;
+        std::promise<void> ready_to_test;
+    } refs;
 
     at.immediate([&]() {
         at.immediate([&]() {
-            val = 2;
-            ++fired;
+            refs.val = 2;
+            ++refs.fired;
         });
 
         // make gap for the next burst
         for (size_t i = 0; i < AsyncTool::BURST_COUNT - 2; ++i) {
-            at.immediate([&]() { ++fired; });
+            at.immediate([&]() { ++refs.fired; });
         }
 
         at.immediate([&]() {
-            ++fired;
-            canceled.get_future().wait();
+            ++refs.fired;
+            refs.canceled.get_future().wait();
         });
-        handle = at.immediate([&]() {
-            val = val * val;
-            ++fired;
+        refs.handle = at.immediate([&]() {
+            refs.val = refs.val * refs.val;
+            ++refs.fired;
         });
 
-        ready_to_cancel.set_value();
+        refs.ready_to_cancel.set_value();
         std::this_thread::sleep_for(TEST_DELAY);
 
         at.immediate([&]() {
-            ++fired;
-            ready_to_test.set_value();
+            ++refs.fired;
+            refs.ready_to_test.set_value();
         });
     });
 
-    ready_to_cancel.get_future().wait();
-    handle.cancel();
-    canceled.set_value();
+    refs.ready_to_cancel.get_future().wait();
+    refs.handle.cancel();
+    refs.canceled.set_value();
 
-    ready_to_test.get_future().wait();
-    BOOST_CHECK_EQUAL(val, 2);
-    BOOST_CHECK_EQUAL(fired, 1 + AsyncTool::BURST_COUNT - 2 + 2);
+    refs.ready_to_test.get_future().wait();
+    BOOST_CHECK_EQUAL(refs.val, 2);
+    BOOST_CHECK_EQUAL(refs.fired, 1 + AsyncTool::BURST_COUNT - 2 + 2);
+}
+
+BOOST_AUTO_TEST_CASE(immediate_variations) // NOLINT
+{
+    AsyncTool at;
+
+    struct Test
+    {
+        static void test() {}
+    };
+
+    at.immediate(&Test::test);
+    at.immediate(std::function<void()>(&Test::test));
+
+    std::function<void()> f(&Test::test);
+    const auto& cf = f;
+    at.immediate(f);
+    at.immediate(cf);
+
+    std::promise<bool> fired;
+    at.immediate([&]() { fired.set_value(true); });
+
+    auto future = fired.get_future();
+
+    BOOST_CHECK(future.valid());
+    BOOST_CHECK_EQUAL(future.get(), true);
 }
 
 BOOST_AUTO_TEST_CASE(defer) // NOLINT
@@ -388,19 +417,22 @@ struct StepEmu
 
 BOOST_AUTO_TEST_CASE(performance) // NOLINT
 {
-    AsyncTool at;
-
-    StepEmu step_emu1{at};
-    StepEmu step_emu2{at};
-    StepEmu step_emu3{at};
+    struct
+    {
+        AsyncTool at;
+        StepEmu step_emu1{at};
+        StepEmu step_emu2{at};
+        StepEmu step_emu3{at};
+        std::promise<void> done;
+    } refs;
 
     auto print_stats = [&]() {
-        auto stats = at.stats();
+        auto stats = refs.at.stats();
 
         std::cout << "Step iterations: " << std::endl
-                  << " 1=" << step_emu1.count << std::endl
-                  << " 2=" << step_emu2.count << std::endl
-                  << " 3=" << step_emu3.count << std::endl;
+                  << " 1=" << refs.step_emu1.count << std::endl
+                  << " 2=" << refs.step_emu2.count << std::endl
+                  << " 3=" << refs.step_emu3.count << std::endl;
 
         std::cout << "Stats: " << std::endl
                   << " immediate_used=" << stats.immediate_used << std::endl
@@ -414,51 +446,53 @@ BOOST_AUTO_TEST_CASE(performance) // NOLINT
         BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
     };
 
-    std::promise<void> done;
-
-    at.immediate([&]() {
+    refs.at.immediate([&]() {
         // NOTE: due to unfair std::mutex scheduling, we need to do it this way
         //       from internal loop thread.
-        step_emu1.start();
-        step_emu2.start();
-        step_emu3.start();
+        refs.step_emu1.start();
+        refs.step_emu2.start();
+        refs.step_emu3.start();
 
-        at.deferred(std::chrono::seconds(1), [&]() {
+        refs.at.deferred(std::chrono::seconds(1), [&]() {
             print_stats();
-            at.shrink_to_fit();
+            refs.at.shrink_to_fit();
         });
 
-        at.deferred(std::chrono::seconds(2), [&]() {
+        refs.at.deferred(std::chrono::seconds(2), [&]() {
             print_stats();
-            step_emu1.stop();
-            step_emu2.stop();
-            step_emu3.stop();
-            done.set_value();
+            refs.step_emu1.stop();
+            refs.step_emu2.stop();
+            refs.step_emu3.stop();
+            refs.done.set_value();
         });
     });
 
-    done.get_future().wait();
-    BOOST_CHECK_GT(step_emu1.count, 1e4);
-    BOOST_CHECK_GT(step_emu2.count, 1e4);
-    BOOST_CHECK_GT(step_emu3.count, 1e4);
+    refs.done.get_future().wait();
+    BOOST_CHECK_GT(refs.step_emu1.count, 1e4);
+    BOOST_CHECK_GT(refs.step_emu2.count, 1e4);
+    BOOST_CHECK_GT(refs.step_emu3.count, 1e4);
 }
 
 BOOST_AUTO_TEST_CASE(stress) // NOLINT
 {
-    AsyncTool at;
-
     constexpr size_t STEP_COUNT = 1e5;
-    std::list<StepEmu> steps;
+
+    struct
+    {
+        AsyncTool at;
+        std::list<StepEmu> steps;
+        std::promise<void> done;
+    } refs;
 
     for (size_t c = STEP_COUNT; c > 0; --c) {
-        steps.emplace_back(at);
+        refs.steps.emplace_back(refs.at);
     }
 
     auto print_stats = [&]() {
-        auto stats = at.stats();
+        auto stats = refs.at.stats();
         size_t iterations = 0;
 
-        for (auto& v : steps) {
+        for (auto& v : refs.steps) {
             iterations += v.count;
         }
 
@@ -478,30 +512,28 @@ BOOST_AUTO_TEST_CASE(stress) // NOLINT
         BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
     };
 
-    std::promise<void> done;
-
-    at.immediate([&]() {
+    refs.at.immediate([&]() {
         // NOTE: due to unfair std::mutex scheduling, we need to do it this way
         //       from internal loop thread.
-        for (auto& v : steps) {
+        for (auto& v : refs.steps) {
             v.start();
         }
 
-        at.deferred(std::chrono::seconds(1), [&]() {
+        refs.at.deferred(std::chrono::seconds(1), [&]() {
             print_stats();
-            at.shrink_to_fit();
+            refs.at.shrink_to_fit();
         });
 
-        at.deferred(std::chrono::seconds(2), [&]() {
+        refs.at.deferred(std::chrono::seconds(2), [&]() {
             print_stats();
-            for (auto& v : steps) {
+            for (auto& v : refs.steps) {
                 v.stop();
             }
-            done.set_value();
+            refs.done.set_value();
         });
     });
 
-    done.get_future().wait();
+    refs.done.get_future().wait();
 }
 
 BOOST_AUTO_TEST_CASE(external_stress) // NOLINT

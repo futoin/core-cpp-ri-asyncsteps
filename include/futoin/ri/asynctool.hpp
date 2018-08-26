@@ -49,10 +49,10 @@ namespace futoin {
             AsyncTool(AsyncTool&&) = delete;
             AsyncTool& operator=(AsyncTool*&) = delete;
 
-            Handle immediate(Callback&& cb) noexcept override;
+            Handle immediate(CallbackPass&& cb) noexcept override;
             Handle deferred(
                     std::chrono::milliseconds delay,
-                    Callback&& cb) noexcept override;
+                    CallbackPass&& cb) noexcept override;
             bool is_same_thread() noexcept override;
             CycleResult iterate() noexcept override;
 

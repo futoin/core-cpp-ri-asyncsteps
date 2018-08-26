@@ -30,7 +30,6 @@
 #include <thread>
 //---
 #include <boost/lockfree/spsc_queue.hpp>
-#include <boost/pool/pool_alloc.hpp>
 
 namespace futoin {
     namespace ri {
@@ -43,25 +42,18 @@ namespace futoin {
         {
             struct UniversalHandle : InternalHandle
             {
-                UniversalHandle(Callback&& cb, HandleCookie cookie) noexcept :
-                    InternalHandle(std::forward<Callback>(cb)), cookie(cookie)
-                {}
+                UniversalHandle() = default;
 
-                UniversalHandle(
-                        Callback&& cb,
-                        HandleCookie cookie,
-                        steady_clock::time_point when) :
-                    InternalHandle(std::forward<Callback>(cb)),
-                    cookie(cookie), when(when)
-                {}
-
-                UniversalHandle(UniversalHandle&& other) noexcept = default;
+                UniversalHandle(const UniversalHandle& other) noexcept = delete;
+                UniversalHandle& operator=(
+                        const UniversalHandle& other) noexcept = delete;
+                UniversalHandle(UniversalHandle&& other) noexcept = delete;
                 UniversalHandle& operator=(UniversalHandle&& other) noexcept =
-                        default;
+                        delete;
 
                 ~UniversalHandle() noexcept = default;
 
-                HandleCookie cookie;
+                HandleCookie cookie{0};
                 steady_clock::time_point when;
             };
 
@@ -143,10 +135,7 @@ namespace futoin {
             }
 
             //---
-            using UniversalAllocator =
-                    boost::fast_pool_allocator<UniversalHandle>;
-            using UniversalHeap =
-                    std::list<UniversalHandle, UniversalAllocator>;
+            using UniversalHeap = std::list<UniversalHandle>;
 
             HandleCookie current_cookie{1};
 
@@ -197,12 +186,13 @@ namespace futoin {
 
         AsyncTool::~AsyncTool() noexcept = default;
 
-        AsyncTool::Handle AsyncTool::immediate(Callback&& cb) noexcept
+        AsyncTool::Handle AsyncTool::immediate(CallbackPass&& cb) noexcept
         {
             if (!AsyncTool::is_same_thread()) {
                 std::promise<AsyncTool::Handle> res;
                 auto func = [this, &res, &cb]() {
-                    res.set_value(this->immediate(std::forward<Callback>(cb)));
+                    res.set_value(
+                            this->immediate(std::forward<CallbackPass>(cb)));
                 };
                 Impl::HandleTask task = std::ref(func);
 
@@ -217,29 +207,29 @@ namespace futoin {
             auto cookie = impl_->get_cookie();
 
             if (free_heap.empty()) {
-                q.emplace_back(std::forward<Callback>(cb), cookie);
+                q.emplace_back();
                 it = q.end();
                 --it;
             } else {
                 it = free_heap.begin();
-                auto& h = *it;
-                h.callback = std::forward<Callback>(cb);
-                h.cookie = cookie;
                 q.splice(q.end(), free_heap, it);
             }
 
-            auto& iq = *it;
-            return {iq, *this, cookie};
+            auto& h = *it;
+            cb.move(h.callback, h.storage);
+            h.cookie = cookie;
+
+            return {h, *this, cookie};
         }
 
         AsyncTool::Handle AsyncTool::deferred(
-                std::chrono::milliseconds delay, Callback&& cb) noexcept
+                std::chrono::milliseconds delay, CallbackPass&& cb) noexcept
         {
             if (!AsyncTool::is_same_thread()) {
                 std::promise<AsyncTool::Handle> res;
                 auto func = [this, &res, &cb, delay]() {
-                    res.set_value(
-                            this->deferred(delay, std::forward<Callback>(cb)));
+                    res.set_value(this->deferred(
+                            delay, std::forward<CallbackPass>(cb)));
                 };
                 Impl::HandleTask task = std::ref(func);
 
@@ -267,22 +257,20 @@ namespace futoin {
             auto cookie = impl_->get_cookie();
 
             if (free_heap.empty()) {
-                used_heap.emplace_front(
-                        std::forward<Callback>(cb), cookie, when);
+                used_heap.emplace_front();
                 it = used_heap.begin();
             } else {
                 it = free_heap.begin();
-                auto& h = *it;
-                h.callback = std::forward<Callback>(cb);
-                h.cookie = cookie;
-                h.when = when;
                 used_heap.splice(used_heap.begin(), free_heap, it);
             }
 
+            auto& h = *it;
+            cb.move(h.callback, h.storage);
+            h.cookie = cookie;
+            h.when = when;
             q.push(it);
 
-            auto& iq = *it;
-            return {iq, *this, cookie};
+            return {h, *this, cookie};
         }
 
         bool AsyncTool::is_same_thread() noexcept
