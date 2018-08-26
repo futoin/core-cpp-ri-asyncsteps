@@ -332,12 +332,7 @@ namespace futoin {
                 };
             }
 
-            ~ParallelStep() noexcept override
-            {
-                for (auto& v : items_) {
-                    v.cancel();
-                }
-            }
+            ~ParallelStep() noexcept override = default;
 
             void sanity_check() noexcept
             {
@@ -417,24 +412,34 @@ namespace futoin {
             }
 
             // Dirty hack: sub-step error
-            void operator()(IAsyncSteps& /*asi*/, ErrorCode err) noexcept
+            void operator()(IAsyncSteps& asi, ErrorCode err) noexcept
             {
+                auto current = static_cast<Protector&>(asi).root_;
+
                 for (auto& v : items_) {
-                    v.cancel();
+                    if (&v != current) {
+                        v.cancel();
+                    }
                 }
 
-                root_->impl_->handle_error(this, err);
+                error_code_ = err;
+                root_->impl_->async_tool_.immediate(std::ref(*this));
             }
 
             // Dirty hack: final completion
             void operator()() noexcept
             {
-                root_->impl_->handle_success(this);
+                if (error_code_.empty()) {
+                    root_->impl_->handle_success(this);
+                } else {
+                    root_->impl_->handle_error(this, error_code_.c_str());
+                }
             }
 
         protected:
             ParallelItems items_;
             size_t completed_{0};
+            futoin::string error_code_;
 
             void process() noexcept
             {
@@ -608,13 +613,12 @@ namespace futoin {
             }
 
             stack_.push(next);
-            const auto slen = stack_.size();
 
             try {
                 in_exec_ = true;
                 next->data_.func_(*next);
 
-                if (stack_.size() < slen) {
+                if (stack_.empty() || (stack_.top() != next)) {
                     // pass
                 } else if (!next->queue_.empty()) {
                     schedule_exec();
@@ -700,6 +704,8 @@ namespace futoin {
                 on_invalid_call("error() out of order");
             }
 
+            futoin::string code_cache;
+
             for (;;) {
                 current->queue_.clear();
 
@@ -717,11 +723,10 @@ namespace futoin {
                 if (on_error) {
                     try {
                         in_exec_ = true;
-                        const auto slen = stack_.size();
                         on_error(*current, code);
                         in_exec_ = false;
 
-                        if (stack_.size() < slen) {
+                        if (stack_.empty() || (stack_.top() != current)) {
                             // success() was called
                             return;
                         }
@@ -733,7 +738,8 @@ namespace futoin {
                     } catch (const std::exception& e) {
                         in_exec_ = false;
                         catch_trace(e);
-                        code = e.what();
+                        code_cache = e.what();
+                        code = code_cache.c_str();
                     }
                 }
 
@@ -752,6 +758,10 @@ namespace futoin {
         void BaseAsyncSteps::Impl::handle_cancel() noexcept
         {
             if (async_tool_.is_same_thread()) {
+                if (in_exec_) {
+                    on_invalid_call("cancel() inside execution");
+                }
+
                 exec_handle_.cancel();
                 queue_.clear();
             } else {
