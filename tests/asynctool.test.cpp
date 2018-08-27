@@ -302,9 +302,9 @@ BOOST_AUTO_TEST_CASE(immediate_variations) // NOLINT
     };
 
     at.immediate(&Test::test);
-    at.immediate(std::function<void()>(&Test::test));
+    at.immediate(AsyncTool::Callback(&Test::test));
 
-    std::function<void()> f(&Test::test);
+    AsyncTool::Callback f(&Test::test);
     const auto& cf = f;
     at.immediate(f);
     at.immediate(cf);

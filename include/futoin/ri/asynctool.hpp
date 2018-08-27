@@ -32,6 +32,7 @@ namespace futoin {
         {
         public:
             static constexpr size_t BURST_COUNT = 128U;
+            using PokeCallback = std::function<void()>;
 
             /**
              * @brief Initialize with internal thread loop
@@ -41,7 +42,7 @@ namespace futoin {
             /**
              * @brief Initialize for external thread loop
              */
-            AsyncTool(Callback poke_external) noexcept;
+            AsyncTool(PokeCallback poke_external) noexcept;
 
             ~AsyncTool() noexcept override;
             AsyncTool(const AsyncTool&) = delete;
