@@ -895,7 +895,7 @@ BOOST_AUTO_TEST_CASE(parallel_outer_loop) // NOLINT
 
     done.get_future().wait();
 
-    std::cout << "Plain inner loop count: " << count << std::endl;
+    std::cout << "Plain inner parallel count: " << count << std::endl;
     BOOST_CHECK_GT(count, 1e4);
 }
 

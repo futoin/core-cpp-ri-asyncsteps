@@ -29,6 +29,7 @@
 #include <thread>
 //---
 #include <boost/lockfree/spsc_queue.hpp>
+#include <boost/pool/object_pool.hpp>
 
 namespace futoin {
     namespace ri {
@@ -37,57 +38,16 @@ namespace futoin {
 
         constexpr size_t AsyncTool::BURST_COUNT;
 
-        template<
-                typename T,
-                size_t AllocStepMin = AsyncTool::BURST_COUNT,
-                size_t AllocStepMax = AllocStepMin * 100>
-        class optimized_list_allocator
+        template<typename T>
+        struct optimized_pool : boost::object_pool<T>
         {
-        public:
-            optimized_list_allocator() noexcept = default;
+            using Base = boost::object_pool<T>;
+            static constexpr size_t MinSize = AsyncTool::BURST_COUNT;
+            static constexpr size_t MaxSize = MinSize * MinSize * MinSize;
 
-            ~optimized_list_allocator() noexcept
-            {
-                for (auto v : allocs_) {
-                    delete[] v;
-                }
-                allocs_.clear();
-            }
+            optimized_pool() : Base(MinSize, MaxSize) {}
 
-            optimized_list_allocator(const optimized_list_allocator&) = delete;
-            optimized_list_allocator& operator=(
-                    const optimized_list_allocator&) = delete;
-            optimized_list_allocator(optimized_list_allocator&&) = delete;
-            optimized_list_allocator&& operator=(optimized_list_allocator&&) =
-                    delete;
-
-            T* alloc() noexcept
-            {
-                if (last_free_ == 0) {
-                    if (last_size_ == 0) {
-                        last_size_ = AllocStepMin;
-                    } else {
-                        last_size_ *= 2;
-
-                        if (last_size_ > AllocStepMax) {
-                            last_size_ = AllocStepMax;
-                        }
-                    }
-
-                    last_alloc_ = new T[last_size_];
-                    last_free_ = last_size_;
-                    allocs_.push_back(last_alloc_);
-                }
-
-                --last_free_;
-                return last_alloc_ + last_free_;
-            }
-
-        private:
-            std::list<T*> allocs_;
-            T* last_alloc_{nullptr};
-            size_t last_free_{0};
-            size_t last_size_{0};
+            using Base::release_memory;
         };
 
         template<typename T>
@@ -100,8 +60,7 @@ namespace futoin {
 
         template<
                 typename T,
-                typename Allocator =
-                        optimized_list_allocator<optimized_list_node<T>>>
+                typename Allocator = optimized_pool<optimized_list_node<T>>>
         class optimized_list
         {
         public:
@@ -166,7 +125,7 @@ namespace futoin {
 
             void emplace_front()
             {
-                auto node = allocator_.alloc();
+                auto node = allocator_.construct();
                 node->next = anchor_.next;
                 node->prev = &anchor_;
                 node->next->prev = node;
@@ -176,7 +135,7 @@ namespace futoin {
 
             void emplace_back()
             {
-                auto node = allocator_.alloc();
+                auto node = allocator_.construct();
                 node->next = &anchor_;
                 node->prev = anchor_.prev;
                 node->prev->next = node;
@@ -184,14 +143,23 @@ namespace futoin {
                 ++size_;
             }
 
-            void shrink_to_fit() {}
-
             bool empty() const
             {
                 return size_ == 0;
             }
 
-            void clear() {}
+            void clear()
+            {
+                for (node* curr = anchor_.next; curr != &anchor_;) {
+                    node* next = curr->next;
+                    allocator_.destroy(curr);
+                    curr = next;
+                }
+
+                anchor_.next = &anchor_;
+                anchor_.prev = &anchor_;
+                size_ = 0;
+            }
 
             size_t size() const
             {
@@ -690,6 +658,7 @@ namespace futoin {
         {
             if (is_same_thread()) {
                 impl_->universal_free_heep.clear();
+                impl_->handle_allocator_.release_memory();
             } else {
                 std::promise<void> res;
                 auto func = [this, &res]() {
