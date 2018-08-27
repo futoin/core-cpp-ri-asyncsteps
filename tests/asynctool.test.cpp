@@ -415,6 +415,24 @@ struct StepEmu
     }
 };
 
+size_t measure_raw_count()
+{
+    static size_t raw_count = 0;
+
+    if (raw_count == 0) {
+        using namespace std::chrono;
+
+        for (steady_clock::time_point end = steady_clock::now() + seconds(1);
+             end > steady_clock::now();) {
+            for (size_t i = AsyncTool::BURST_COUNT; i > 0; --i) {
+                ++raw_count;
+            }
+        }
+    }
+
+    return raw_count;
+}
+
 BOOST_AUTO_TEST_CASE(performance) // NOLINT
 {
     struct
@@ -423,12 +441,15 @@ BOOST_AUTO_TEST_CASE(performance) // NOLINT
         StepEmu step_emu1{at};
         StepEmu step_emu2{at};
         StepEmu step_emu3{at};
+        size_t raw_count{0};
         std::promise<void> done;
     } refs;
 
     auto print_stats = [&]() {
         auto stats = refs.at.stats();
 
+        std::cout << std::endl;
+        std::cout << "Raw iterations: " << refs.raw_count << std::endl;
         std::cout << "Step iterations: " << std::endl
                   << " 1=" << refs.step_emu1.count << std::endl
                   << " 2=" << refs.step_emu2.count << std::endl
@@ -445,6 +466,8 @@ BOOST_AUTO_TEST_CASE(performance) // NOLINT
         BOOST_CHECK_LE(stats.universal_free, AsyncTool::BURST_COUNT * 2);
         BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
     };
+
+    refs.at.immediate([&]() { refs.raw_count = measure_raw_count(); });
 
     refs.at.immediate([&]() {
         // NOTE: due to unfair std::mutex scheduling, we need to do it this way
@@ -468,9 +491,11 @@ BOOST_AUTO_TEST_CASE(performance) // NOLINT
     });
 
     refs.done.get_future().wait();
-    BOOST_CHECK_GT(refs.step_emu1.count, 1e4);
-    BOOST_CHECK_GT(refs.step_emu2.count, 1e4);
-    BOOST_CHECK_GT(refs.step_emu3.count, 1e4);
+
+    const size_t ref_count = refs.raw_count / 3 / 150;
+    BOOST_CHECK_GT(refs.step_emu1.count, ref_count);
+    BOOST_CHECK_GT(refs.step_emu2.count, ref_count);
+    BOOST_CHECK_GT(refs.step_emu3.count, ref_count);
 }
 
 BOOST_AUTO_TEST_CASE(stress) // NOLINT
@@ -481,6 +506,7 @@ BOOST_AUTO_TEST_CASE(stress) // NOLINT
     {
         AsyncTool at;
         std::list<StepEmu> steps;
+        size_t raw_count{0};
         std::promise<void> done;
     } refs;
 
@@ -496,6 +522,9 @@ BOOST_AUTO_TEST_CASE(stress) // NOLINT
             iterations += v.count;
         }
 
+        std::cout << std::endl;
+        std::cout << "Raw iterations: " << refs.raw_count << std::endl;
+
         std::cout << "Step iterations: " << iterations << std::endl;
 
         std::cout << "Stats: " << std::endl
@@ -505,12 +534,14 @@ BOOST_AUTO_TEST_CASE(stress) // NOLINT
                   << " handle_task_count=" << stats.handle_task_count
                   << std::endl;
 
-        BOOST_CHECK_GT(iterations, 1e4);
+        BOOST_CHECK_GT(iterations, refs.raw_count / 100);
         BOOST_CHECK_LE(stats.immediate_used, STEP_COUNT * 2);
         BOOST_CHECK_LE(
                 stats.deferred_used + stats.universal_free, STEP_COUNT * 3);
         BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
     };
+
+    refs.at.immediate([&]() { refs.raw_count = measure_raw_count(); });
 
     refs.at.immediate([&]() {
         // NOTE: due to unfair std::mutex scheduling, we need to do it this way
@@ -543,6 +574,8 @@ BOOST_AUTO_TEST_CASE(external_stress) // NOLINT
     auto measure = [&](size_t thread_count) {
         std::cout << "Running threads: " << thread_count << std::endl;
 
+        auto test_coeff = std::max<int>(1, 30 - thread_count);
+        size_t raw_count = measure_raw_count();
         std::atomic_bool run{true};
         volatile size_t call_count = 0;
         std::atomic_size_t scheduled{0};
@@ -576,7 +609,7 @@ BOOST_AUTO_TEST_CASE(external_stress) // NOLINT
 
         std::cout << "Call count: " << call_count << std::endl
                   << "Scheduled count: " << scheduled << std::endl;
-        BOOST_CHECK_GT(call_count, 1e4);
+        BOOST_CHECK_GT(call_count, raw_count / 150 / test_coeff);
         return call_count;
     };
 

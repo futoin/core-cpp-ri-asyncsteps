@@ -826,8 +826,78 @@ BOOST_AUTO_TEST_SUITE_END() // NOLINT
 
 BOOST_AUTO_TEST_SUITE(spi) // NOLINT
 
-BOOST_AUTO_TEST_CASE(performance) // NOLINT
-{}
+BOOST_AUTO_TEST_CASE(plain_outer_loop) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    volatile size_t count = 0;
+
+    asi.loop([&](IAsyncSteps& asi) { ++count; });
+    asi.execute();
+
+    std::promise<void> done;
+    at.deferred(TEST_DELAY, [&]() {
+        asi.cancel();
+        done.set_value();
+    });
+
+    done.get_future().wait();
+
+    std::cout << "Plain outer loop count: " << count << std::endl;
+    BOOST_CHECK_GT(count, 1e4);
+}
+
+BOOST_AUTO_TEST_CASE(plain_inner_loop) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    volatile size_t count = 0;
+
+    asi.add([&](IAsyncSteps& asi) {
+        asi.loop([&](IAsyncSteps& asi) { ++count; });
+    });
+    asi.execute();
+
+    std::promise<void> done;
+    at.deferred(TEST_DELAY, [&]() {
+        asi.cancel();
+        done.set_value();
+    });
+
+    done.get_future().wait();
+
+    std::cout << "Plain inner loop count: " << count << std::endl;
+    BOOST_CHECK_GT(count, 1e4);
+}
+
+BOOST_AUTO_TEST_CASE(parallel_outer_loop) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    volatile size_t count = 0;
+
+    asi.loop([&](IAsyncSteps& asi) {
+        auto& p = asi.parallel();
+        p.add([&](IAsyncSteps& asi) { ++count; });
+        p.add([&](IAsyncSteps& asi) { ++count; });
+        p.add([&](IAsyncSteps& asi) { ++count; });
+    });
+    asi.execute();
+
+    std::promise<void> done;
+    at.deferred(TEST_DELAY, [&]() {
+        asi.cancel();
+        done.set_value();
+    });
+
+    done.get_future().wait();
+
+    std::cout << "Plain inner loop count: " << count << std::endl;
+    BOOST_CHECK_GT(count, 1e4);
+}
 
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
 
