@@ -19,6 +19,7 @@
 #define FUTOIN_RI_ASYNCTOOL_HPP
 //---
 #include <futoin/iasynctool.hpp>
+#include <futoin/imempool.hpp>
 //---
 #include <memory>
 //---
@@ -28,7 +29,7 @@ namespace futoin {
         /**
          * @brief Async reactor implementation
          */
-        class AsyncTool final : public IAsyncTool
+        class AsyncTool final : public IAsyncTool, private IMemPool
         {
         public:
             static constexpr size_t BURST_COUNT = 128U;
@@ -56,6 +57,7 @@ namespace futoin {
                     CallbackPass&& cb) noexcept override;
             bool is_same_thread() noexcept override;
             CycleResult iterate() noexcept override;
+            IMemPool& mem_pool() noexcept override;
 
             struct Stats
             {
@@ -66,11 +68,17 @@ namespace futoin {
             };
 
             Stats stats() noexcept;
-            void shrink_to_fit() noexcept;
 
         protected:
             void cancel(Handle& h) noexcept override;
             bool is_valid(Handle& h) noexcept override;
+
+            void* allocate(size_t object_size, size_t count) noexcept override;
+            void deallocate(
+                    void* ptr,
+                    size_t object_size,
+                    size_t count) noexcept override;
+            void release_memory() noexcept override;
 
         private:
             struct Impl;

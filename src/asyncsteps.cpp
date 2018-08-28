@@ -17,6 +17,7 @@
 
 #include <futoin/ri/asyncsteps.hpp>
 
+#include <cassert>
 #include <cstring>
 #include <deque>
 #include <future>
@@ -54,7 +55,8 @@ namespace futoin {
             using Stack = std::stack<Protector*>;
 
             Impl(State& state, IAsyncTool& async_tool) :
-                async_tool_(async_tool), catch_trace(state.catch_trace)
+                async_tool_(async_tool), mem_pool_(async_tool.mem_pool()),
+                catch_trace(state.catch_trace)
             {}
             void sanity_check() noexcept
             {
@@ -84,6 +86,7 @@ namespace futoin {
             }
 
             IAsyncTool& async_tool_;
+            IMemPool& mem_pool_;
             NextArgs next_args_;
             Queue queue_;
             Stack stack_;
@@ -777,7 +780,7 @@ namespace futoin {
 
         //---
         AsyncSteps::AsyncSteps(IAsyncTool& at) noexcept :
-            BaseAsyncSteps(state_, at)
+            BaseAsyncSteps(state_, at), state_(at.mem_pool())
         {}
 
         State& AsyncSteps::state() noexcept

@@ -55,7 +55,7 @@ BOOST_AUTO_TEST_CASE(add_success) // NOLINT
             },
             [](IAsyncSteps&, ErrorCode) {});
 
-    asi.add([&](IAsyncSteps& asi, int a, double b, std::string&& c, bool d) {
+    asi.add([&](IAsyncSteps& asi, int a, double b, futoin::string&& c, bool d) {
         ++count;
         BOOST_CHECK_EQUAL(a, 2);
         BOOST_CHECK_EQUAL(b, 1.23);
@@ -108,7 +108,7 @@ BOOST_AUTO_TEST_CASE(inner_add_success) // NOLINT
         asi.add([&](IAsyncSteps& asi,
                     int a,
                     double b,
-                    std::string&& c,
+                    futoin::string&& c,
                     bool d) {
             BOOST_TEST_CHECKPOINT("inner 3");
             ++count;
@@ -147,14 +147,15 @@ BOOST_AUTO_TEST_CASE(state) // NOLINT
 
     std::promise<void> done;
 
-    asi.state()["str"] = std::string("String");
+    asi.state()["str"] = futoin::string("String");
     asi.state()["int"] = 123;
     asi.state()["float"] = 1.23f;
     asi.state()["boolean"] = true;
     asi.state()["done"] = std::ref(done);
 
     asi.add([](IAsyncSteps& asi) {
-        BOOST_CHECK_EQUAL(any_cast<std::string>(asi.state()["str"]), "String");
+        BOOST_CHECK_EQUAL(
+                any_cast<futoin::string>(asi.state()["str"]), "String");
         BOOST_CHECK_EQUAL(any_cast<int>(asi.state()["int"]), 123);
         BOOST_CHECK_EQUAL(any_cast<float>(asi.state()["float"]), 1.23f);
         BOOST_CHECK_EQUAL(any_cast<bool>(asi.state()["boolean"]), true);
@@ -219,7 +220,7 @@ BOOST_AUTO_TEST_CASE(handle_errors) // NOLINT
                 asi.success("Yes");
             });
     asi.add(
-            [&](IAsyncSteps& asi, std::string&& res) {
+            [&](IAsyncSteps& asi, futoin::string&& res) {
                 asi.state<V>("result").push_back(20);
 
                 BOOST_CHECK_EQUAL(res, "Yes");

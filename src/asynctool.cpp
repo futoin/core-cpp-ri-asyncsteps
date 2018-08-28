@@ -16,6 +16,7 @@
 //-----------------------------------------------------------------------------
 
 #include <futoin/ri/asynctool.hpp>
+#include <futoin/ri/mempool.hpp>
 
 #include <cassert>
 #include <iostream>
@@ -351,6 +352,8 @@ namespace futoin {
             PokeCallback poke_cb;
             std::thread::id reactor_thread_id;
             std::unique_ptr<std::thread> thread;
+
+            MemPoolManager mem_pool;
         };
 
         AsyncTool::AsyncTool() noexcept : impl_(new Impl)
@@ -465,6 +468,8 @@ namespace futoin {
 
         void AsyncTool::Impl::process() noexcept
         {
+            GlobalMemPool::set_thread_default(mem_pool);
+
             while (!is_shutdown.load(std::memory_order_relaxed)) {
                 iterate();
 
@@ -654,15 +659,57 @@ namespace futoin {
             };
         }
 
-        void AsyncTool::shrink_to_fit() noexcept
+        void AsyncTool::release_memory() noexcept
         {
             if (is_same_thread()) {
                 impl_->universal_free_heep.clear();
                 impl_->handle_allocator_.release_memory();
+                impl_->mem_pool.release_memory();
             } else {
                 std::promise<void> res;
                 auto func = [this, &res]() {
-                    this->shrink_to_fit();
+                    this->release_memory();
+                    res.set_value();
+                };
+                Impl::HandleTask task = std::ref(func);
+
+                impl_->add_handle_task(task);
+                res.get_future().wait();
+            }
+        }
+
+        IMemPool& AsyncTool::mem_pool() noexcept
+        {
+            return *this;
+        }
+
+        void* AsyncTool::allocate(size_t object_size, size_t count) noexcept
+        {
+            if (is_same_thread()) {
+                return impl_->mem_pool.allocate(object_size, count);
+            }
+
+            std::promise<void*> res;
+            auto func = [=, &res]() {
+                res.set_value(AsyncTool::allocate(object_size, count));
+            };
+            Impl::HandleTask task = std::ref(func);
+
+            impl_->add_handle_task(task);
+            return res.get_future().get();
+        }
+
+        void AsyncTool::deallocate(
+                void* ptr, size_t object_size, size_t count) noexcept
+        {
+            if (ptr == nullptr) {
+                // pass
+            } else if (is_same_thread()) {
+                impl_->mem_pool.deallocate(ptr, object_size, count);
+            } else {
+                std::promise<void> res;
+                auto func = [=, &res]() {
+                    AsyncTool::deallocate(ptr, object_size, count);
                     res.set_value();
                 };
                 Impl::HandleTask task = std::ref(func);

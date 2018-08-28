@@ -478,7 +478,7 @@ BOOST_AUTO_TEST_CASE(performance) // NOLINT
 
         refs.at.deferred(std::chrono::seconds(1), [&]() {
             print_stats();
-            refs.at.shrink_to_fit();
+            refs.at.mem_pool().release_memory();
         });
 
         refs.at.deferred(std::chrono::seconds(2), [&]() {
@@ -552,7 +552,7 @@ BOOST_AUTO_TEST_CASE(stress) // NOLINT
 
         refs.at.deferred(std::chrono::seconds(1), [&]() {
             print_stats();
-            refs.at.shrink_to_fit();
+            refs.at.mem_pool().release_memory();
         });
 
         refs.at.deferred(std::chrono::seconds(2), [&]() {
