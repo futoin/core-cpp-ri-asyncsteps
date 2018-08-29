@@ -100,7 +100,8 @@ namespace futoin {
         {
         public:
             SubAsyncSteps(State& state, IAsyncTool& async_tool) noexcept :
-                BaseAsyncSteps(state, async_tool), state_(state)
+                BaseAsyncSteps(state, async_tool),
+                state_(state)
             {}
 
             State& state() noexcept override
@@ -780,7 +781,8 @@ namespace futoin {
 
         //---
         AsyncSteps::AsyncSteps(IAsyncTool& at) noexcept :
-            BaseAsyncSteps(state_, at), state_(at.mem_pool())
+            BaseAsyncSteps(state_, at),
+            state_(at.mem_pool())
         {}
 
         State& AsyncSteps::state() noexcept
