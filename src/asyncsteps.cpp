@@ -125,11 +125,17 @@ namespace futoin {
             friend BaseAsyncSteps::Impl;
 
         public:
-            ProtectorData(BaseAsyncSteps& root) noexcept : root_(&root) {}
+            ProtectorData(
+                    BaseAsyncSteps& root,
+                    ProtectorData* parent = nullptr) noexcept :
+                root_(&root),
+                parent_(parent)
+            {}
             ~ProtectorData() noexcept override;
 
         protected:
             BaseAsyncSteps* root_;
+            ProtectorData* parent_;
 
             CancelPass::Storage on_cancel_storage_;
             StepData data_;
@@ -157,13 +163,12 @@ namespace futoin {
                 async_tool_(async_tool),
                 mem_pool_(mem_pool),
                 queue_{Queue::allocator_type(mem_pool, true)},
-                stack_{Stack::allocator_type(mem_pool, true)},
                 catch_trace(state.catch_trace),
                 ext_data_allocator(mem_pool, true)
             {}
             void sanity_check() noexcept
             {
-                if (!stack_.empty() || exec_handle_) {
+                if ((stack_top_ != nullptr) || exec_handle_) {
                     on_invalid_call("Out-of-order use of root AsyncSteps");
                 }
             }
@@ -231,7 +236,7 @@ namespace futoin {
             IMemPool& mem_pool_;
             NextArgs next_args_;
             Queue queue_;
-            Stack stack_;
+            ProtectorData* stack_top_{nullptr};
             IAsyncTool::Handle exec_handle_;
             State::CatchTrace& catch_trace;
             bool in_exec_ = false;
@@ -244,7 +249,9 @@ namespace futoin {
         class BaseAsyncSteps::Protector : public ProtectorData
         {
         public:
-            Protector(BaseAsyncSteps& root) noexcept : ProtectorData(root) {}
+            Protector(BaseAsyncSteps& root, ProtectorData* parent) noexcept :
+                ProtectorData(root, parent)
+            {}
 
             void sanity_check() noexcept
             {
@@ -252,9 +259,7 @@ namespace futoin {
                     on_invalid_call("Step got invalidated!");
                 }
 
-                auto& stack = root_->impl_->stack_;
-
-                if (stack.empty() || (this != stack.back())) {
+                if (this != root_->impl_->stack_top_) {
                     on_invalid_call("Step used out-of-order!");
                 }
             }
@@ -264,9 +269,8 @@ namespace futoin {
                 if (root_ == nullptr) {
                     return false;
                 }
-                auto& stack = root_->impl_->stack_;
 
-                return (!stack.empty() && (this == stack.back()));
+                return (this == root_->impl_->stack_top_);
             }
 
             StepData& add_step() noexcept override
@@ -274,7 +278,7 @@ namespace futoin {
                 sanity_check();
 
                 auto buf = root_->impl_->alloc_step();
-                auto step = new (buf) Protector(*root_);
+                auto step = new (buf) Protector(*root_, this);
                 return step->data_;
             }
 
@@ -355,7 +359,7 @@ namespace futoin {
                 sanity_check();
 
                 auto buf = root_->impl_->alloc_step();
-                auto step = new (buf) Protector(*root_);
+                auto step = new (buf) Protector(*root_, this);
 
                 step->data_.func_ = &Protector::loop_handler;
 
@@ -368,7 +372,7 @@ namespace futoin {
                 auto& ls = *(that.ext_data_);
 
                 auto buf = that.root_->impl_->alloc_step();
-                auto step = new (buf) Protector(*(that.root_));
+                auto step = new (buf) Protector(*(that.root_), &that);
 
                 step->data_.func_ = std::ref(ls);
                 step->data_.on_error_ = std::ref(ls);
@@ -400,7 +404,8 @@ namespace futoin {
             friend BaseAsyncSteps;
 
         public:
-            ParallelStep(BaseAsyncSteps& root) noexcept : Protector(root)
+            ParallelStep(BaseAsyncSteps& root, ProtectorData* parent) noexcept :
+                Protector(root, parent)
             {
                 alloc_ext_data(false);
                 data_.func_ = &process_cb;
@@ -426,15 +431,18 @@ namespace futoin {
 
                 sub_data.func_ = [](IAsyncSteps& asi) {
                     auto& that = static_cast<ProtectorData&>(asi);
-                    that.sub_queue_start = 1;
-                    that.sub_queue_front = 1;
+                    --(that.sub_queue_start);
+                    --(that.sub_queue_front);
                 };
                 sub_data.on_error_ = std::ref(*this);
 
                 // actual step
                 auto sub_impl = sub_asi.impl_;
+                sub_impl->alloc_step(); // completion step
                 auto data = sub_impl->alloc_step();
-                auto step = new (data) Protector(sub_asi);
+                auto& sub_asi_p = reinterpret_cast<ProtectorData&>(
+                        sub_asi.impl_->queue_.front());
+                auto step = new (data) Protector(sub_asi, &sub_asi_p);
                 return step;
             }
 
@@ -525,9 +533,15 @@ namespace futoin {
             static void process_cb(IAsyncSteps& asi)
             {
                 auto& that = static_cast<ParallelStep&>(asi);
+                ExecPass completion_handler(std::ref(that));
 
                 for (auto& v : that.ext_data_->items_) {
-                    v.add(ExecPass(std::ref(that)));
+                    // NOTE: See add_substep() for pre-allocation
+                    auto& holder = reinterpret_cast<Impl::ProtectorDataHolder&>(
+                            v.impl_->queue_[1]);
+                    auto step = new (&holder) Protector(v, nullptr);
+                    auto& d = step->data_;
+                    completion_handler.move(d.func_, d.func_storage_);
                     v.impl_->schedule_exec();
                 }
                 that.Protector::waitExternal();
@@ -565,7 +579,7 @@ namespace futoin {
             sanity_check();
 
             auto buf = root_->impl_->alloc_step();
-            auto step = new (buf) ParallelStep(*root_);
+            auto step = new (buf) ParallelStep(*root_, this);
 
             auto& data = step->data_;
             on_error.move(data.on_error_, data.on_error_storage_);
@@ -581,6 +595,13 @@ namespace futoin {
             auto& mem_pool = async_tool.mem_pool();
             auto p = IMemPool::Allocator<Impl>(mem_pool, true).allocate(1);
             impl_ = new (p) Impl(state, async_tool, mem_pool);
+
+            static_assert(
+                    sizeof(Protector) == sizeof(ProtectorData),
+                    "Invalid fields in Protector");
+            static_assert(
+                    sizeof(ParallelStep) == sizeof(ProtectorData),
+                    "Invalid fields in ParallelStep");
         }
 
         BaseAsyncSteps::~BaseAsyncSteps() noexcept
@@ -597,7 +618,7 @@ namespace futoin {
 
         BaseAsyncSteps::operator bool() const noexcept
         {
-            return (impl_->stack_.empty() && !impl_->exec_handle_);
+            return (impl_->stack_top_ == nullptr) && !impl_->exec_handle_;
         }
 
         IAsyncSteps::StepData& BaseAsyncSteps::add_step() noexcept
@@ -605,7 +626,7 @@ namespace futoin {
             impl_->sanity_check();
 
             auto buf = impl_->alloc_step();
-            auto step = new (buf) Protector(*this);
+            auto step = new (buf) Protector(*this, nullptr);
             return step->data_;
         }
 
@@ -614,7 +635,7 @@ namespace futoin {
             impl_->sanity_check();
 
             auto buf = impl_->alloc_step();
-            auto step = new (buf) ParallelStep(*this);
+            auto step = new (buf) ParallelStep(*this, nullptr);
 
             auto& data = step->data_;
             on_error.move(data.on_error_, data.on_error_storage_);
@@ -679,7 +700,7 @@ namespace futoin {
             impl_->sanity_check();
 
             auto buf = impl_->alloc_step();
-            auto step = new (buf) Protector(*this);
+            auto step = new (buf) Protector(*this, nullptr);
 
             step->data_.func_ = &Protector::loop_handler;
 
@@ -707,12 +728,12 @@ namespace futoin {
             exec_handle_.cancel();
             ProtectorDataHolder* next_data = nullptr;
 
-            while (!stack_.empty()) {
-                auto current = stack_.back();
+            while (stack_top_ != nullptr) {
+                auto current = stack_top_;
 
                 if (is_sub_queue_empty(current)) {
+                    stack_top_ = current->parent_;
                     sub_queue_free(current);
-                    stack_.pop_back();
                 } else {
                     next_data = &(queue_[current->sub_queue_front]);
                     break;
@@ -733,13 +754,13 @@ namespace futoin {
             next->sub_queue_start = qs;
             next->sub_queue_front = qs;
 
-            stack_.push_back(next);
+            stack_top_ = next;
 
             try {
                 in_exec_ = true;
                 next->data_.func_(*next);
 
-                if (stack_.empty() || (stack_.back() != next)) {
+                if (stack_top_ != next) {
                     // pass
                 } else if (!is_sub_queue_empty(next)) {
                     schedule_exec();
@@ -773,10 +794,10 @@ namespace futoin {
                 on_invalid_call("success() with sub-steps");
             }
 
-            stack_.pop_back();
+            stack_top_ = stack_top_->parent_;
 
-            while (!stack_.empty()) {
-                current = stack_.back();
+            while (stack_top_ != nullptr) {
+                current = stack_top_;
 
                 cond_sub_queue_shift(current);
 
@@ -785,8 +806,8 @@ namespace futoin {
                     return;
                 }
 
+                stack_top_ = current->parent_;
                 sub_queue_free(current);
-                stack_.pop_back();
             }
 
             // Got to root queue
@@ -822,7 +843,7 @@ namespace futoin {
                 return;
             }
 
-            if (current != stack_.back()) {
+            if (current != stack_top_) {
                 on_invalid_call("error() out of order");
             }
 
@@ -850,7 +871,7 @@ namespace futoin {
                         on_error(*current, code);
                         in_exec_ = false;
 
-                        if (stack_.empty() || (stack_.back() != current)) {
+                        if (stack_top_ != current) {
                             // success() was called
                             return;
                         }
@@ -867,13 +888,13 @@ namespace futoin {
                     }
                 }
 
-                stack_.pop_back();
+                stack_top_ = current->parent_;
 
-                if (stack_.empty()) {
+                if (stack_top_ == nullptr) {
                     break;
                 }
 
-                current = stack_.back();
+                current = stack_top_;
             }
 
             queue_.clear();
@@ -888,8 +909,8 @@ namespace futoin {
 
                 exec_handle_.cancel();
 
-                while (!stack_.empty()) {
-                    auto current = stack_.back();
+                while (stack_top_ != nullptr) {
+                    auto current = stack_top_;
                     current->limit_handle_.cancel();
 
                     auto& on_cancel = current->on_cancel_;
@@ -899,7 +920,7 @@ namespace futoin {
                         current->on_cancel_ = nullptr;
                     }
 
-                    stack_.pop_back();
+                    stack_top_ = current->parent_;
                 }
 
                 queue_.clear();
