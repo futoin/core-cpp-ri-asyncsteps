@@ -62,12 +62,13 @@ namespace futoin {
                     asyncsteps::State& state, IAsyncTool& async_tool) noexcept;
 
         private:
-            struct ExtLoopState;
+            struct ExtStepState;
+            struct ProtectorData;
             class ParallelStep;
             class Protector;
             struct Impl;
 
-            std::unique_ptr<Impl> impl_;
+            Impl* impl_;
         };
 
         /**

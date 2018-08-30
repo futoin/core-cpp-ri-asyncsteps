@@ -491,6 +491,8 @@ namespace futoin {
                     }
                 }
             }
+
+            GlobalMemPool::reset_thread_default();
         }
 
         AsyncTool::CycleResult AsyncTool::iterate() noexcept
@@ -678,45 +680,10 @@ namespace futoin {
             }
         }
 
-        IMemPool& AsyncTool::mem_pool() noexcept
+        IMemPool& AsyncTool::mem_pool(
+                size_t object_size, bool optimize) noexcept
         {
-            return *this;
-        }
-
-        void* AsyncTool::allocate(size_t object_size, size_t count) noexcept
-        {
-            if (is_same_thread()) {
-                return impl_->mem_pool.allocate(object_size, count);
-            }
-
-            std::promise<void*> res;
-            auto func = [=, &res]() {
-                res.set_value(AsyncTool::allocate(object_size, count));
-            };
-            Impl::HandleTask task = std::ref(func);
-
-            impl_->add_handle_task(task);
-            return res.get_future().get();
-        }
-
-        void AsyncTool::deallocate(
-                void* ptr, size_t object_size, size_t count) noexcept
-        {
-            if (ptr == nullptr) {
-                // pass
-            } else if (is_same_thread()) {
-                impl_->mem_pool.deallocate(ptr, object_size, count);
-            } else {
-                std::promise<void> res;
-                auto func = [=, &res]() {
-                    AsyncTool::deallocate(ptr, object_size, count);
-                    res.set_value();
-                };
-                Impl::HandleTask task = std::ref(func);
-
-                impl_->add_handle_task(task);
-                res.get_future().wait();
-            }
+            return impl_->mem_pool.mem_pool(object_size, optimize);
         }
     } // namespace ri
 } // namespace futoin

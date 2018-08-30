@@ -22,6 +22,7 @@
 //---
 #include <boost/pool/pool.hpp>
 #include <map>
+#include <mutex>
 //---
 
 namespace futoin {
@@ -32,12 +33,15 @@ namespace futoin {
         class BoostMemPool final : public IMemPool
         {
         public:
-            BoostMemPool(size_t requested_size) noexcept : pool(requested_size)
+            BoostMemPool(IMemPool& root, size_t requested_size) noexcept :
+                root(root),
+                pool(requested_size)
             {}
 
             void* allocate(
                     size_t /*object_size*/, size_t count) noexcept override
             {
+                std::lock_guard<std::mutex> lock(mutex);
                 return pool.ordered_malloc(count);
             }
 
@@ -46,16 +50,26 @@ namespace futoin {
                     size_t /*object_size*/,
                     size_t count) noexcept override
             {
+                std::lock_guard<std::mutex> lock(mutex);
                 pool.ordered_free(ptr, count);
             }
 
             void release_memory() noexcept override
             {
+                std::lock_guard<std::mutex> lock(mutex);
                 pool.release_memory();
             }
 
+            IMemPool& mem_pool(
+                    size_t object_size, bool optimize) noexcept override
+            {
+                return root.mem_pool(object_size, optimize);
+            }
+
         private:
+            IMemPool& root;
             boost::pool<boost::default_user_allocator_malloc_free> pool;
+            std::mutex mutex;
         };
 
         /**
@@ -75,18 +89,7 @@ namespace futoin {
 
             void* allocate(size_t object_size, size_t count) noexcept override
             {
-                auto iter = pools.find(object_size);
-
-                if (iter == pools.end()) {
-                    iter = pools.emplace(
-                                        std::piecewise_construct,
-                                        std::forward_as_tuple(object_size),
-                                        std::forward_as_tuple(
-                                                new BoostMemPool(object_size)))
-                                   .first;
-                }
-
-                return iter->second->allocate(object_size, count);
+                return mem_pool(object_size).allocate(object_size, count);
             }
 
             void deallocate(
@@ -94,18 +97,46 @@ namespace futoin {
                     size_t object_size,
                     size_t count) noexcept override
             {
-                pools[object_size]->deallocate(ptr, object_size, count);
+                return mem_pool(object_size)
+                        .deallocate(ptr, object_size, count);
             }
 
             void release_memory() noexcept override
             {
+                std::lock_guard<std::mutex> lock(mutex);
+
                 for (auto& kv : pools) {
                     kv.second->release_memory();
                 }
             }
 
+            IMemPool& mem_pool(
+                    size_t object_size, bool optimize = false) noexcept override
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+
+                auto iter = pools.find(object_size);
+
+                if (iter != pools.end()) {
+                    return *(iter->second);
+                }
+
+                if (optimize) {
+                    iter = pools.emplace(
+                                        std::piecewise_construct,
+                                        std::forward_as_tuple(object_size),
+                                        std::forward_as_tuple(new BoostMemPool(
+                                                *this, object_size)))
+                                   .first;
+                    return *(iter->second);
+                }
+
+                return GlobalMemPool::get_common();
+            }
+
         private:
             std::map<size_t, IMemPool*> pools;
+            std::mutex mutex;
         };
     } // namespace ri
 } // namespace futoin

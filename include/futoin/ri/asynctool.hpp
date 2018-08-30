@@ -29,7 +29,7 @@ namespace futoin {
         /**
          * @brief Async reactor implementation
          */
-        class AsyncTool final : public IAsyncTool, private IMemPool
+        class AsyncTool final : public IAsyncTool
         {
         public:
             static constexpr size_t BURST_COUNT = 128U;
@@ -57,7 +57,11 @@ namespace futoin {
                     CallbackPass&& cb) noexcept override;
             bool is_same_thread() noexcept override;
             CycleResult iterate() noexcept override;
-            IMemPool& mem_pool() noexcept override;
+
+            IMemPool& mem_pool(
+                    size_t object_size = 1,
+                    bool optimize = false) noexcept override;
+            void release_memory() noexcept override;
 
             struct Stats
             {
@@ -72,13 +76,6 @@ namespace futoin {
         protected:
             void cancel(Handle& h) noexcept override;
             bool is_valid(Handle& h) noexcept override;
-
-            void* allocate(size_t object_size, size_t count) noexcept override;
-            void deallocate(
-                    void* ptr,
-                    size_t object_size,
-                    size_t count) noexcept override;
-            void release_memory() noexcept override;
 
         private:
             struct Impl;

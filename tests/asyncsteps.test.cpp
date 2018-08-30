@@ -674,7 +674,11 @@ BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
     std::promise<void> done;
     asi.state()["result"] = V();
 
-    auto& p = asi.parallel();
+    auto& p = asi.parallel([&](IAsyncSteps& asi, ErrorCode err) {
+        std::cout << err << std::endl;
+        BOOST_CHECK(false);
+        done.set_value();
+    });
 
     p.add([](IAsyncSteps& asi) {
         asi.state<V>("result").push_back(1);
@@ -827,6 +831,272 @@ BOOST_AUTO_TEST_SUITE_END() // NOLINT
 
 BOOST_AUTO_TEST_SUITE(spi) // NOLINT
 
+constexpr size_t TEST_STEP_INSTANCE_COUNT = 128;
+
+BOOST_AUTO_TEST_CASE(instance_outer) // NOLINT
+{
+    size_t count = 0;
+    ri::AsyncTool at;
+
+    std::atomic_bool done{false};
+
+    at.deferred(
+            TEST_DELAY, [&]() { done.store(true, std::memory_order_release); });
+
+    while (!done.load(std::memory_order_consume)) {
+        ri::AsyncSteps asi(at);
+        ++count;
+    }
+
+    std::cout << "Outer instance count: " << count << std::endl;
+    BOOST_CHECK_GT(count, 1e4);
+}
+
+BOOST_AUTO_TEST_CASE(instance_inner) // NOLINT
+{
+    struct
+    {
+        ri::AsyncTool at;
+        ri::AsyncTool at2;
+        std::atomic_bool done{false};
+        std::promise<size_t> result;
+    } refs;
+
+    refs.at2.deferred(TEST_DELAY, [&]() {
+        refs.done.store(true, std::memory_order_release);
+    });
+
+    refs.at.immediate([&]() {
+        size_t count = 0;
+
+        while (!refs.done.load(std::memory_order_consume)) {
+            ri::AsyncSteps asi(refs.at);
+            ++count;
+        }
+
+        refs.result.set_value(count);
+    });
+
+    size_t count = refs.result.get_future().get();
+    std::cout << "Inner instance count: " << count << std::endl;
+    BOOST_CHECK_GT(count, 1e4);
+}
+
+BOOST_AUTO_TEST_CASE(instance_concurrent_inner) // NOLINT
+{
+    struct
+    {
+        ri::AsyncTool at;
+        ri::AsyncTool at2;
+        ri::AsyncTool at3;
+        std::atomic_bool done{false};
+        std::promise<size_t> result;
+        std::promise<size_t> result2;
+    } refs;
+
+    refs.at3.deferred(TEST_DELAY, [&]() {
+        refs.done.store(true, std::memory_order_release);
+    });
+
+    refs.at.immediate([&]() {
+        size_t count = 0;
+
+        while (!refs.done.load(std::memory_order_consume)) {
+            ri::AsyncSteps asi(refs.at);
+            ++count;
+        }
+
+        refs.result.set_value(count);
+    });
+
+    refs.at2.immediate([&]() {
+        size_t count = 0;
+
+        while (!refs.done.load(std::memory_order_consume)) {
+            ri::AsyncSteps asi(refs.at);
+            ++count;
+        }
+
+        refs.result2.set_value(count);
+    });
+
+    size_t count =
+            refs.result.get_future().get() + refs.result2.get_future().get();
+    std::cout << "Inner concurrent instance count: " << count << std::endl;
+    BOOST_CHECK_GT(count, 1e4);
+}
+
+BOOST_AUTO_TEST_CASE(instance_outer_add) // NOLINT
+{
+    size_t count = 0;
+    ri::AsyncTool at;
+
+    std::atomic_bool done{false};
+
+    at.deferred(
+            TEST_DELAY, [&]() { done.store(true, std::memory_order_release); });
+
+    while (!done.load(std::memory_order_consume)) {
+        ri::AsyncSteps asi(at);
+
+        for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
+            asi.add([](IAsyncSteps&) {});
+            ++count;
+        }
+    }
+
+    std::cout << "Outer instance.add count: " << count << std::endl;
+    BOOST_CHECK_GT(count, 1e4);
+}
+
+BOOST_AUTO_TEST_CASE(instance_inner_add) // NOLINT
+{
+    struct
+    {
+        ri::AsyncTool at;
+        ri::AsyncTool at2;
+        std::atomic_bool done{false};
+        std::promise<size_t> result;
+    } refs;
+
+    refs.at2.deferred(TEST_DELAY, [&]() {
+        refs.done.store(true, std::memory_order_release);
+    });
+
+    refs.at.immediate([&]() {
+        size_t count = 0;
+
+        while (!refs.done.load(std::memory_order_consume)) {
+            ri::AsyncSteps asi(refs.at);
+
+            for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
+                asi.add([](IAsyncSteps&) {});
+                ++count;
+            }
+        }
+
+        refs.result.set_value(count);
+    });
+
+    size_t count = refs.result.get_future().get();
+    std::cout << "Inner instance.add count: " << count << std::endl;
+    BOOST_CHECK_GT(count, 1e4);
+}
+
+BOOST_AUTO_TEST_CASE(instance_outer_loop) // NOLINT
+{
+    size_t count = 0;
+    ri::AsyncTool at;
+
+    std::atomic_bool done{false};
+
+    at.deferred(
+            TEST_DELAY, [&]() { done.store(true, std::memory_order_release); });
+
+    while (!done.load(std::memory_order_consume)) {
+        ri::AsyncSteps asi(at);
+
+        for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
+            asi.loop([](IAsyncSteps&) {});
+            ++count;
+        }
+    }
+
+    std::cout << "Outer instance.loop count: " << count << std::endl;
+    BOOST_CHECK_GT(count, 1e4);
+}
+
+BOOST_AUTO_TEST_CASE(instance_inner_loop) // NOLINT
+{
+    struct
+    {
+        ri::AsyncTool at;
+        ri::AsyncTool at2;
+        std::atomic_bool done{false};
+        std::promise<size_t> result;
+    } refs;
+
+    refs.at2.deferred(TEST_DELAY, [&]() {
+        refs.done.store(true, std::memory_order_release);
+    });
+
+    refs.at.immediate([&]() {
+        size_t count = 0;
+
+        while (!refs.done.load(std::memory_order_consume)) {
+            ri::AsyncSteps asi(refs.at);
+
+            for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
+                asi.loop([](IAsyncSteps&) {});
+                ++count;
+            }
+        }
+
+        refs.result.set_value(count);
+    });
+
+    size_t count = refs.result.get_future().get();
+    std::cout << "Inner instance.loop count: " << count << std::endl;
+    BOOST_CHECK_GT(count, 1e4);
+}
+
+BOOST_AUTO_TEST_CASE(instance_outer_parallel) // NOLINT
+{
+    size_t count = 0;
+    ri::AsyncTool at;
+
+    std::atomic_bool done{false};
+
+    at.deferred(
+            TEST_DELAY, [&]() { done.store(true, std::memory_order_release); });
+
+    while (!done.load(std::memory_order_consume)) {
+        ri::AsyncSteps asi(at);
+
+        for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
+            asi.parallel([](IAsyncSteps&, ErrorCode) {});
+            ++count;
+        }
+    }
+
+    std::cout << "Outer instance.parallel count: " << count << std::endl;
+    BOOST_CHECK_GT(count, 1e4);
+}
+
+BOOST_AUTO_TEST_CASE(instance_inner_parallel) // NOLINT
+{
+    struct
+    {
+        ri::AsyncTool at;
+        ri::AsyncTool at2;
+        std::atomic_bool done{false};
+        std::promise<size_t> result;
+    } refs;
+
+    refs.at2.deferred(TEST_DELAY, [&]() {
+        refs.done.store(true, std::memory_order_release);
+    });
+
+    refs.at.immediate([&]() {
+        size_t count = 0;
+
+        while (!refs.done.load(std::memory_order_consume)) {
+            ri::AsyncSteps asi(refs.at);
+
+            for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
+                asi.parallel([](IAsyncSteps&, ErrorCode) {});
+                ++count;
+            }
+        }
+
+        refs.result.set_value(count);
+    });
+
+    size_t count = refs.result.get_future().get();
+    std::cout << "Inner instance.parallel count: " << count << std::endl;
+    BOOST_CHECK_GT(count, 1e4);
+}
+
 BOOST_AUTO_TEST_CASE(plain_outer_loop) // NOLINT
 {
     ri::AsyncTool at;
@@ -845,7 +1115,7 @@ BOOST_AUTO_TEST_CASE(plain_outer_loop) // NOLINT
 
     done.get_future().wait();
 
-    std::cout << "Plain outer loop count: " << count << std::endl;
+    std::cout << "Plain outer iteration count: " << count << std::endl;
     BOOST_CHECK_GT(count, 1e4);
 }
 
@@ -869,7 +1139,7 @@ BOOST_AUTO_TEST_CASE(plain_inner_loop) // NOLINT
 
     done.get_future().wait();
 
-    std::cout << "Plain inner loop count: " << count << std::endl;
+    std::cout << "Plain inner iteration count: " << count << std::endl;
     BOOST_CHECK_GT(count, 1e4);
 }
 
@@ -896,7 +1166,7 @@ BOOST_AUTO_TEST_CASE(parallel_outer_loop) // NOLINT
 
     done.get_future().wait();
 
-    std::cout << "Plain inner parallel count: " << count << std::endl;
+    std::cout << "Plain inner parallel iteration count: " << count << std::endl;
     BOOST_CHECK_GT(count, 1e4);
 }
 

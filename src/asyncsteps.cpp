@@ -48,54 +48,6 @@ namespace futoin {
         }
 
         //---
-        struct BaseAsyncSteps::Impl
-        {
-            using QueueItem = std::unique_ptr<Protector>;
-            using Queue = std::deque<QueueItem>;
-            using Stack = std::stack<Protector*>;
-
-            Impl(State& state, IAsyncTool& async_tool) :
-                async_tool_(async_tool), mem_pool_(async_tool.mem_pool()),
-                catch_trace(state.catch_trace)
-            {}
-            void sanity_check() noexcept
-            {
-                if (!stack_.empty() || exec_handle_) {
-                    on_invalid_call("Out-of-order use of root AsyncSteps");
-                }
-            }
-
-            void schedule_exec() noexcept;
-            void execute_handler() noexcept;
-            void handle_success(Protector* current) noexcept;
-            void handle_error(Protector* current, ErrorCode code) noexcept;
-            void handle_cancel() noexcept;
-            void operator()() noexcept
-            {
-                execute_handler();
-            }
-
-            template<typename Q>
-            void cond_queue_pop(Q& q)
-            {
-                auto loop_state = q.front()->loop_state_.get();
-
-                if ((loop_state == nullptr) || !loop_state->continue_loop) {
-                    q.pop_front();
-                }
-            }
-
-            IAsyncTool& async_tool_;
-            IMemPool& mem_pool_;
-            NextArgs next_args_;
-            Queue queue_;
-            Stack stack_;
-            IAsyncTool::Handle exec_handle_;
-            State::CatchTrace& catch_trace;
-            bool in_exec_ = false;
-        };
-
-        //---
         class SubAsyncSteps final : public BaseAsyncSteps
         {
         public:
@@ -114,8 +66,16 @@ namespace futoin {
         };
 
         //---
-        struct BaseAsyncSteps::ExtLoopState : LoopState
+        struct BaseAsyncSteps::ExtStepState : asyncsteps::LoopState
         {
+            ExtStepState(IMemPool& mem_pool, bool is_loop) :
+                continue_loop(is_loop),
+                items_{ParallelItems::allocator_type(mem_pool)},
+                error_code_{futoin::string::allocator_type(mem_pool)}
+            {}
+
+            // Loop stuff
+            //--------------------
             // Actual add() -> func
             void operator()(IAsyncSteps& asi)
             {
@@ -149,26 +109,142 @@ namespace futoin {
             }
 
             bool continue_loop{true};
+
+            // Parallel step stuff
+            //--------------------
+            using ParallelItems = std::
+                    deque<SubAsyncSteps, IMemPool::Allocator<SubAsyncSteps>>;
+            ParallelItems items_;
+            std::size_t completed_{0};
+            futoin::string error_code_;
         };
 
-        //---
-
-        class BaseAsyncSteps::Protector : public IAsyncSteps
+        class BaseAsyncSteps::ProtectorData : public IAsyncSteps
         {
             friend BaseAsyncSteps;
             friend BaseAsyncSteps::Impl;
 
-            using QueueItem = Impl::QueueItem;
-            using Queue = Impl::Queue;
-
         public:
-            Protector(BaseAsyncSteps& root) noexcept : root_(&root) {}
+            ProtectorData(BaseAsyncSteps& root) noexcept : root_(&root) {}
+            ~ProtectorData() noexcept override;
 
-            ~Protector() noexcept override
+        protected:
+            BaseAsyncSteps* root_;
+
+            CancelPass::Storage on_cancel_storage_;
+            StepData data_;
+            CancelCallback on_cancel_;
+            ExtStepState* ext_data_{nullptr};
+            IAsyncTool::Handle limit_handle_;
+            std::size_t sub_queue_start{0};
+            std::size_t sub_queue_front{0};
+        };
+
+        //---
+        struct BaseAsyncSteps::Impl
+        {
+            struct ProtectorDataHolder
             {
-                limit_handle_.cancel();
-                root_ = nullptr;
+                alignas(ProtectorData) char data[sizeof(ProtectorData)];
+            };
+
+            using QueueItem = ProtectorDataHolder;
+            using Queue = std::deque<QueueItem, IMemPool::Allocator<QueueItem>>;
+            using Stack = std::
+                    deque<ProtectorData*, IMemPool::Allocator<ProtectorData*>>;
+
+            Impl(State& state, IAsyncTool& async_tool, IMemPool& mem_pool) :
+                async_tool_(async_tool),
+                mem_pool_(mem_pool),
+                queue_{Queue::allocator_type(mem_pool, true)},
+                stack_{Stack::allocator_type(mem_pool, true)},
+                catch_trace(state.catch_trace),
+                ext_data_allocator(mem_pool, true)
+            {}
+            void sanity_check() noexcept
+            {
+                if (!stack_.empty() || exec_handle_) {
+                    on_invalid_call("Out-of-order use of root AsyncSteps");
+                }
             }
+
+            void schedule_exec() noexcept;
+            void execute_handler() noexcept;
+            void handle_success(ProtectorData* current) noexcept;
+            void handle_error(ProtectorData* current, ErrorCode code) noexcept;
+            void handle_cancel() noexcept;
+            void operator()() noexcept
+            {
+                execute_handler();
+            }
+
+            void cond_sub_queue_shift(ProtectorData* current)
+            {
+                auto& sqf = queue_[current->sub_queue_front];
+                auto& front_step = reinterpret_cast<ProtectorData&>(sqf);
+                auto loop_state = front_step.ext_data_;
+
+                if ((loop_state == nullptr) || !loop_state->continue_loop) {
+                    ++(current->sub_queue_front);
+                }
+            }
+
+            void cond_queue_shift()
+            {
+                auto& front_step =
+                        reinterpret_cast<ProtectorData&>(queue_.front());
+                auto loop_state = front_step.ext_data_;
+
+                if ((loop_state == nullptr) || !loop_state->continue_loop) {
+                    front_step.~ProtectorData();
+                    queue_.pop_front();
+                }
+            }
+
+            ProtectorDataHolder* alloc_step()
+            {
+                queue_.emplace_back();
+                return &(queue_.back());
+            }
+
+            bool is_sub_queue_empty(ProtectorData* current) const
+            {
+                return current->sub_queue_front == queue_.size();
+            }
+
+            void sub_queue_free(ProtectorData* current)
+            {
+                auto sub_queue_begin =
+                        queue_.begin() + current->sub_queue_start;
+                auto sub_queue_end = queue_.end();
+
+                for (auto iter = sub_queue_begin; iter != sub_queue_end;
+                     ++iter) {
+                    auto& p = reinterpret_cast<ProtectorData&>(*iter);
+                    p.~ProtectorData();
+                }
+
+                queue_.erase(sub_queue_begin, sub_queue_end);
+            }
+
+            IAsyncTool& async_tool_;
+            IMemPool& mem_pool_;
+            NextArgs next_args_;
+            Queue queue_;
+            Stack stack_;
+            IAsyncTool::Handle exec_handle_;
+            State::CatchTrace& catch_trace;
+            bool in_exec_ = false;
+
+            IMemPool::Allocator<ExtStepState> ext_data_allocator;
+        };
+
+        //---
+
+        class BaseAsyncSteps::Protector : public ProtectorData
+        {
+        public:
+            Protector(BaseAsyncSteps& root) noexcept : ProtectorData(root) {}
 
             void sanity_check() noexcept
             {
@@ -178,7 +254,7 @@ namespace futoin {
 
                 auto& stack = root_->impl_->stack_;
 
-                if (stack.empty() || (this != stack.top())) {
+                if (stack.empty() || (this != stack.back())) {
                     on_invalid_call("Step used out-of-order!");
                 }
             }
@@ -190,15 +266,15 @@ namespace futoin {
                 }
                 auto& stack = root_->impl_->stack_;
 
-                return (!stack.empty() && (this == stack.top()));
+                return (!stack.empty() && (this == stack.back()));
             }
 
             StepData& add_step() noexcept override
             {
                 sanity_check();
 
-                auto step = new Protector(*root_);
-                queue_.emplace_back(step);
+                auto buf = root_->impl_->alloc_step();
+                auto step = new (buf) Protector(*root_);
                 return step->data_;
             }
 
@@ -265,27 +341,34 @@ namespace futoin {
                 on_invalid_call("cancel() in execute()");
             }
 
+            LoopState& alloc_ext_data(bool is_loop) noexcept
+            {
+                auto impl = root_->impl_;
+                assert(!ext_data_);
+                auto pls = impl->ext_data_allocator.allocate(1);
+                ext_data_ = new (pls) ExtStepState(impl->mem_pool_, is_loop);
+                return *pls;
+            }
+
             LoopState& add_loop() noexcept override
             {
                 sanity_check();
 
-                auto step = new Protector(*root_);
-                queue_.emplace_back(step);
+                auto buf = root_->impl_->alloc_step();
+                auto step = new (buf) Protector(*root_);
 
                 step->data_.func_ = &Protector::loop_handler;
 
-                auto& pls = step->loop_state_;
-                pls.reset(new ExtLoopState);
-                return *pls;
+                return step->alloc_ext_data(true);
             }
 
             static void loop_handler(IAsyncSteps& asi) noexcept
             {
                 auto& that = static_cast<Protector&>(asi);
-                auto& ls = *(that.loop_state_);
+                auto& ls = *(that.ext_data_);
 
-                auto step = new Protector(*(that.root_));
-                that.queue_.emplace_back(step);
+                auto buf = that.root_->impl_->alloc_step();
+                auto step = new (buf) Protector(*(that.root_));
 
                 step->data_.func_ = std::ref(ls);
                 step->data_.on_error_ = std::ref(ls);
@@ -307,16 +390,6 @@ namespace futoin {
                 } catch (...) {
                 }
             }
-
-        protected:
-            BaseAsyncSteps* root_;
-            Queue queue_;
-
-            CancelPass::Storage on_cancel_storage_;
-            StepData data_;
-            CancelCallback on_cancel_;
-            std::unique_ptr<ExtLoopState> loop_state_;
-            IAsyncTool::Handle limit_handle_;
         };
 
         //---
@@ -326,14 +399,12 @@ namespace futoin {
         {
             friend BaseAsyncSteps;
 
-            using ParallelItems = std::deque<SubAsyncSteps>;
-
         public:
             ParallelStep(BaseAsyncSteps& root) noexcept : Protector(root)
             {
-                data_.func_ = [](IAsyncSteps& asi) {
-                    static_cast<ParallelStep&>(asi).process();
-                };
+                alloc_ext_data(false);
+                data_.func_ = &process_cb;
+                on_cancel_ = &cancel_cb;
             }
 
             ~ParallelStep() noexcept override = default;
@@ -347,17 +418,23 @@ namespace futoin {
 
             Protector* add_substep() noexcept
             {
-                items_.emplace_back(root_->state(), root_->impl_->async_tool_);
+                auto& items = ext_data_->items_;
+                items.emplace_back(root_->state(), root_->impl_->async_tool_);
 
-                auto& root_step = items_.back();
-                auto& root_data = root_step.add_step();
+                auto& sub_asi = items.back();
+                auto& sub_data = sub_asi.add_step();
 
-                root_data.func_ = [](IAsyncSteps&) {};
-                root_data.on_error_ = std::ref(*this);
+                sub_data.func_ = [](IAsyncSteps& asi) {
+                    auto& that = static_cast<ProtectorData&>(asi);
+                    that.sub_queue_start = 1;
+                    that.sub_queue_front = 1;
+                };
+                sub_data.on_error_ = std::ref(*this);
 
                 // actual step
-                auto step = new Protector(root_step);
-                root_step.impl_->queue_[0]->queue_.emplace_back(step);
+                auto sub_impl = sub_asi.impl_;
+                auto data = sub_impl->alloc_step();
+                auto step = new (data) Protector(sub_asi);
                 return step;
             }
 
@@ -375,9 +452,7 @@ namespace futoin {
                 auto step = add_substep();
                 step->data_.func_ = &Protector::loop_handler;
 
-                auto& pls = step->loop_state_;
-                pls.reset(new ExtLoopState);
-                return *pls;
+                return step->alloc_ext_data(true);
             }
 
             IAsyncSteps& parallel(ErrorPass /*on_error*/) noexcept override
@@ -408,10 +483,12 @@ namespace futoin {
             // Dirty hack: sub-step completion
             void operator()(IAsyncSteps& /*asi*/) noexcept
             {
-                ++completed_;
+                auto& completed = ext_data_->completed_;
+                ++completed;
 
-                if (completed_ == items_.size()) {
-                    root_->impl_->async_tool_.immediate(std::ref(*this));
+                if (completed == ext_data_->items_.size()) {
+                    limit_handle_ = root_->impl_->async_tool_.immediate(
+                            std::ref(*this));
                 }
             }
 
@@ -419,68 +496,103 @@ namespace futoin {
             void operator()(IAsyncSteps& asi, ErrorCode err) noexcept
             {
                 auto current = static_cast<Protector&>(asi).root_;
+                auto& items = ext_data_->items_;
 
-                for (auto& v : items_) {
+                for (auto& v : items) {
                     if (&v != current) {
                         v.cancel();
                     }
                 }
 
-                error_code_ = err;
-                root_->impl_->async_tool_.immediate(std::ref(*this));
+                ext_data_->error_code_ = err;
+                limit_handle_ =
+                        root_->impl_->async_tool_.immediate(std::ref(*this));
             }
 
             // Dirty hack: final completion
             void operator()() noexcept
             {
-                if (error_code_.empty()) {
+                auto& error_code = ext_data_->error_code_;
+
+                if (error_code.empty()) {
                     root_->impl_->handle_success(this);
                 } else {
-                    root_->impl_->handle_error(this, error_code_.c_str());
+                    root_->impl_->handle_error(this, error_code.c_str());
                 }
             }
 
         protected:
-            ParallelItems items_;
-            size_t completed_{0};
-            futoin::string error_code_;
-
-            void process() noexcept
+            static void process_cb(IAsyncSteps& asi)
             {
-                for (auto& v : items_) {
-                    v.add(ExecPass(std::ref(*this)));
+                auto& that = static_cast<ParallelStep&>(asi);
+
+                for (auto& v : that.ext_data_->items_) {
+                    v.add(ExecPass(std::ref(that)));
                     v.impl_->schedule_exec();
                 }
-                Protector::waitExternal();
+                that.Protector::waitExternal();
+            }
+
+            static void cancel_cb(IAsyncSteps& asi)
+            {
+                auto& that = static_cast<ParallelStep&>(asi);
+
+                if (that.ext_data_->error_code_.empty()) {
+                    // Not caused by inner error
+                    for (auto& v : that.ext_data_->items_) {
+                        v.cancel();
+                    }
+                }
             }
         };
 
         //---
+        BaseAsyncSteps::ProtectorData::~ProtectorData() noexcept
+        {
+            limit_handle_.cancel();
+
+            if (ext_data_ != nullptr) {
+                root_->impl_->ext_data_allocator.deallocate(ext_data_, 1);
+                ext_data_ = nullptr;
+            }
+
+            root_ = nullptr;
+        }
 
         IAsyncSteps& BaseAsyncSteps::Protector::parallel(
                 ErrorPass on_error) noexcept
         {
             sanity_check();
 
-            queue_.emplace_back(new ParallelStep(*root_));
-            auto& res = queue_.back();
+            auto buf = root_->impl_->alloc_step();
+            auto step = new (buf) ParallelStep(*root_);
 
-            auto& data = res->data_;
+            auto& data = step->data_;
             on_error.move(data.on_error_, data.on_error_storage_);
 
-            return *res;
+            return *step;
         }
 
         //---
 
         BaseAsyncSteps::BaseAsyncSteps(
-                State& state, IAsyncTool& async_tool) noexcept :
-            impl_(new Impl(state, async_tool))
-        {}
+                State& state, IAsyncTool& async_tool) noexcept
+        {
+            auto& mem_pool = async_tool.mem_pool();
+            auto p = IMemPool::Allocator<Impl>(mem_pool, true).allocate(1);
+            impl_ = new (p) Impl(state, async_tool, mem_pool);
+        }
 
         BaseAsyncSteps::~BaseAsyncSteps() noexcept
         {
             BaseAsyncSteps::cancel();
+
+            if (impl_ != nullptr) {
+                impl_->~Impl();
+                IMemPool::Allocator<Impl>(impl_->mem_pool_, true)
+                        .deallocate(impl_, 1);
+                impl_ = nullptr;
+            }
         }
 
         BaseAsyncSteps::operator bool() const noexcept
@@ -492,8 +604,8 @@ namespace futoin {
         {
             impl_->sanity_check();
 
-            auto step = new Protector(*this);
-            impl_->queue_.emplace_back(step);
+            auto buf = impl_->alloc_step();
+            auto step = new (buf) Protector(*this);
             return step->data_;
         }
 
@@ -501,8 +613,8 @@ namespace futoin {
         {
             impl_->sanity_check();
 
-            auto step = new ParallelStep(*this);
-            impl_->queue_.emplace_back(step);
+            auto buf = impl_->alloc_step();
+            auto step = new (buf) ParallelStep(*this);
 
             auto& data = step->data_;
             on_error.move(data.on_error_, data.on_error_storage_);
@@ -529,8 +641,8 @@ namespace futoin {
         {
             impl_->sanity_check();
 
-            auto* other = dynamic_cast<BaseAsyncSteps*>(&asi);
-            assert(other);
+            assert(dynamic_cast<BaseAsyncSteps*>(&asi));
+            (void) asi;
 
             on_invalid_call("copyFrom() is not supported in C++");
         }
@@ -566,14 +678,12 @@ namespace futoin {
         {
             impl_->sanity_check();
 
-            auto step = new Protector(*this);
-            impl_->queue_.emplace_back(step);
+            auto buf = impl_->alloc_step();
+            auto step = new (buf) Protector(*this);
 
             step->data_.func_ = &Protector::loop_handler;
 
-            auto& pls = step->loop_state_;
-            pls.reset(new ExtLoopState);
-            return *pls;
+            return step->alloc_ext_data(true);
         }
 
         std::unique_ptr<IAsyncSteps> BaseAsyncSteps::newInstance() noexcept
@@ -595,36 +705,43 @@ namespace futoin {
         void BaseAsyncSteps::Impl::execute_handler() noexcept
         {
             exec_handle_.cancel();
-            Protector* next = nullptr;
+            ProtectorDataHolder* next_data = nullptr;
 
             while (!stack_.empty()) {
-                auto& q = stack_.top()->queue_;
+                auto current = stack_.back();
 
-                if (q.empty()) {
-                    stack_.pop();
+                if (is_sub_queue_empty(current)) {
+                    sub_queue_free(current);
+                    stack_.pop_back();
                 } else {
-                    next = q.front().get();
+                    next_data = &(queue_[current->sub_queue_front]);
                     break;
                 }
             }
 
-            if (next == nullptr) {
+            if (next_data == nullptr) {
                 if (queue_.empty()) {
                     return;
                 }
 
-                next = queue_.front().get();
+                next_data = &(queue_.front());
             }
 
-            stack_.push(next);
+            auto next = reinterpret_cast<ProtectorData*>(next_data);
+
+            const auto qs = queue_.size();
+            next->sub_queue_start = qs;
+            next->sub_queue_front = qs;
+
+            stack_.push_back(next);
 
             try {
                 in_exec_ = true;
                 next->data_.func_(*next);
 
-                if (stack_.empty() || (stack_.top() != next)) {
+                if (stack_.empty() || (stack_.back() != next)) {
                     // pass
-                } else if (!next->queue_.empty()) {
+                } else if (!is_sub_queue_empty(next)) {
                     schedule_exec();
                 } else if (!next->on_cancel_ && !next->limit_handle_) {
                     next->handle_success();
@@ -638,7 +755,8 @@ namespace futoin {
             }
         }
 
-        void BaseAsyncSteps::Impl::handle_success(Protector* current) noexcept
+        void BaseAsyncSteps::Impl::handle_success(
+                ProtectorData* current) noexcept
         {
             if (!async_tool_.is_same_thread()) {
                 std::promise<void> done;
@@ -651,28 +769,28 @@ namespace futoin {
                 return;
             }
 
-            if (!current->queue_.empty()) {
+            if (!is_sub_queue_empty(current)) {
                 on_invalid_call("success() with sub-steps");
             }
 
-            stack_.pop();
+            stack_.pop_back();
 
             while (!stack_.empty()) {
-                current = stack_.top();
+                current = stack_.back();
 
-                auto& q = current->queue_;
-                cond_queue_pop(q);
+                cond_sub_queue_shift(current);
 
-                if (!q.empty()) {
+                if (!is_sub_queue_empty(current)) {
                     schedule_exec();
                     return;
                 }
 
-                stack_.pop();
+                sub_queue_free(current);
+                stack_.pop_back();
             }
 
             // Got to root queue
-            cond_queue_pop(queue_);
+            cond_queue_shift();
 
             if (!queue_.empty()) {
                 schedule_exec();
@@ -680,7 +798,7 @@ namespace futoin {
         }
 
         void BaseAsyncSteps::Impl::handle_error(
-                Protector* current, ErrorCode code) noexcept
+                ProtectorData* current, ErrorCode code) noexcept
         {
             if (!async_tool_.is_same_thread()) {
                 std::promise<void> done;
@@ -704,14 +822,16 @@ namespace futoin {
                 return;
             }
 
-            if (current != stack_.top()) {
+            if (current != stack_.back()) {
                 on_invalid_call("error() out of order");
             }
 
-            futoin::string code_cache;
+            futoin::string code_cache{
+                    futoin::string::allocator_type(mem_pool_)};
 
             for (;;) {
-                current->queue_.clear();
+                sub_queue_free(current);
+                current->sub_queue_front = current->sub_queue_start;
 
                 current->limit_handle_.cancel();
 
@@ -730,12 +850,12 @@ namespace futoin {
                         on_error(*current, code);
                         in_exec_ = false;
 
-                        if (stack_.empty() || (stack_.top() != current)) {
+                        if (stack_.empty() || (stack_.back() != current)) {
                             // success() was called
                             return;
                         }
 
-                        if (!current->queue_.empty()) {
+                        if (!is_sub_queue_empty(current)) {
                             schedule_exec();
                             return;
                         }
@@ -747,13 +867,13 @@ namespace futoin {
                     }
                 }
 
-                stack_.pop();
+                stack_.pop_back();
 
                 if (stack_.empty()) {
                     break;
                 }
 
-                current = stack_.top();
+                current = stack_.back();
             }
 
             queue_.clear();
@@ -767,6 +887,21 @@ namespace futoin {
                 }
 
                 exec_handle_.cancel();
+
+                while (!stack_.empty()) {
+                    auto current = stack_.back();
+                    current->limit_handle_.cancel();
+
+                    auto& on_cancel = current->on_cancel_;
+
+                    if (on_cancel) {
+                        on_cancel(*current);
+                        current->on_cancel_ = nullptr;
+                    }
+
+                    stack_.pop_back();
+                }
+
                 queue_.clear();
             } else {
                 std::promise<void> done;
