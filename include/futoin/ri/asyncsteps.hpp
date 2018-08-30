@@ -67,8 +67,10 @@ namespace futoin {
             class ParallelStep;
             class Protector;
             struct Impl;
+            struct AllocOptimizer;
 
             Impl* impl_;
+            static AllocOptimizer alloc_optimizer;
         };
 
         /**

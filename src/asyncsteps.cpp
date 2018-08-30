@@ -162,9 +162,9 @@ namespace futoin {
             Impl(State& state, IAsyncTool& async_tool, IMemPool& mem_pool) :
                 async_tool_(async_tool),
                 mem_pool_(mem_pool),
-                queue_{Queue::allocator_type(mem_pool, true)},
+                queue_{Queue::allocator_type(mem_pool)},
                 catch_trace(state.catch_trace),
-                ext_data_allocator(mem_pool, true)
+                ext_data_allocator(mem_pool)
             {}
             void sanity_check() noexcept
             {
@@ -593,7 +593,7 @@ namespace futoin {
                 State& state, IAsyncTool& async_tool) noexcept
         {
             auto& mem_pool = async_tool.mem_pool();
-            auto p = IMemPool::Allocator<Impl>(mem_pool, true).allocate(1);
+            auto p = IMemPool::Allocator<Impl>(mem_pool).allocate(1);
             impl_ = new (p) Impl(state, async_tool, mem_pool);
 
             static_assert(
@@ -610,7 +610,7 @@ namespace futoin {
 
             if (impl_ != nullptr) {
                 impl_->~Impl();
-                IMemPool::Allocator<Impl>(impl_->mem_pool_, true)
+                IMemPool::Allocator<Impl>(impl_->mem_pool_)
                         .deallocate(impl_, 1);
                 impl_ = nullptr;
             }
@@ -902,7 +902,8 @@ namespace futoin {
 
         void BaseAsyncSteps::Impl::handle_cancel() noexcept
         {
-            if (async_tool_.is_same_thread()) {
+            if (async_tool_.is_same_thread()
+                || (!exec_handle_ && (stack_top_ == nullptr))) {
                 if (in_exec_) {
                     on_invalid_call("cancel() inside execution");
                 }
@@ -945,5 +946,14 @@ namespace futoin {
         {
             return state_;
         }
+
+        struct BaseAsyncSteps::AllocOptimizer
+        {
+            IMemPool::Allocator<futoin::any>::EnsureOptimized any;
+            IMemPool::Allocator<BaseAsyncSteps::Impl>::EnsureOptimized impl;
+            IMemPool::Allocator<BaseAsyncSteps::ExtStepState>::EnsureOptimized
+                    ext_state;
+        };
+        BaseAsyncSteps::AllocOptimizer BaseAsyncSteps::alloc_optimizer;
     } // namespace ri
 } // namespace futoin

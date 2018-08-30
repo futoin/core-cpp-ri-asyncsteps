@@ -90,8 +90,16 @@ if (FUTOIN_WITH_TESTS)
         tests/asyncsteps.test.cpp
         tests/main.test.cpp
     )
+
     target_link_libraries(RIAsyncStepsTest
         PRIVATE ${PROJECT_NAME} Boost::unit_test_framework)
+
+    if (FALSE)
+        find_library(LIB_PERFTOOLS libtcmalloc.so.4)
+        target_link_libraries(RIAsyncStepsTest
+            PRIVATE ${LIB_PERFTOOLS})
+    endif()
+
     add_test(RIAsyncSteps RIAsyncStepsTest)
 endif()
 

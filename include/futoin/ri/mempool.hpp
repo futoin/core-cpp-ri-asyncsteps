@@ -20,8 +20,9 @@
 //---
 #include <futoin/imempool.hpp>
 //---
+#include <array>
 #include <boost/pool/pool.hpp>
-#include <map>
+#include <iostream>
 #include <mutex>
 //---
 
@@ -72,19 +73,35 @@ namespace futoin {
             std::mutex mutex;
         };
 
+        class PassthroughMemPool final : public futoin::PassthroughMemPool
+        {
+        public:
+            PassthroughMemPool(IMemPool& root) noexcept : root(root) {}
+
+            IMemPool& mem_pool(
+                    size_t object_size, bool optimize) noexcept override
+            {
+                return root.mem_pool(object_size, optimize);
+            }
+
+        private:
+            IMemPool& root;
+        };
+
         /**
          * @brief Manager of size-specific allocators
          */
         class MemPoolManager final : public IMemPool
         {
         public:
-            ~MemPoolManager() override
+            ~MemPoolManager() noexcept override
             {
-                for (auto& kv : pools) {
-                    delete kv.second;
+                for (auto& p : pools) {
+                    if (p != nullptr) {
+                        delete p;
+                        p = nullptr;
+                    }
                 }
-
-                pools.clear();
             }
 
             void* allocate(size_t object_size, size_t count) noexcept override
@@ -105,38 +122,52 @@ namespace futoin {
             {
                 std::lock_guard<std::mutex> lock(mutex);
 
-                for (auto& kv : pools) {
-                    kv.second->release_memory();
+                for (auto p : pools) {
+                    if (p != nullptr) {
+                        p->release_memory();
+                    }
                 }
             }
 
             IMemPool& mem_pool(
                     size_t object_size, bool optimize = false) noexcept override
             {
-                std::lock_guard<std::mutex> lock(mutex);
-
-                auto iter = pools.find(object_size);
-
-                if (iter != pools.end()) {
-                    return *(iter->second);
-                }
-
                 if (optimize) {
-                    iter = pools.emplace(
-                                        std::piecewise_construct,
-                                        std::forward_as_tuple(object_size),
-                                        std::forward_as_tuple(new BoostMemPool(
-                                                *this, object_size)))
-                                   .first;
-                    return *(iter->second);
+                    auto key = (object_size + sizeof(ptrdiff_t) - 1)
+                               / sizeof(ptrdiff_t);
+
+                    if (key < pools.size()) {
+                        auto p = pools[key];
+
+                        if (p == nullptr) {
+                            std::lock_guard<std::mutex> lock(mutex);
+                            p = pools[key];
+
+                            if (p == nullptr) {
+                                p = new BoostMemPool(
+                                        *this, key * sizeof(ptrdiff_t));
+                                pools[key] = p;
+                            } else {
+                                std::cout << "FATAL: unable to optimize "
+                                             "object_size="
+                                          << object_size << std::endl;
+                                std::terminate();
+                            }
+                        }
+
+                        return *p;
+                    }
                 }
 
-                return GlobalMemPool::get_common();
+                return default_pool;
             }
 
         private:
-            std::map<size_t, IMemPool*> pools;
+            // 64x8
+            static constexpr size_t MAX_OBJECT_SIZE_IN_POINTERS = 64;
+            std::array<IMemPool*, MAX_OBJECT_SIZE_IN_POINTERS> pools{nullptr};
             std::mutex mutex;
+            PassthroughMemPool default_pool{*this};
         };
     } // namespace ri
 } // namespace futoin
