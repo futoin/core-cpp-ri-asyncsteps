@@ -159,13 +159,16 @@ namespace futoin {
             using Stack = std::
                     deque<ProtectorData*, IMemPool::Allocator<ProtectorData*>>;
 
-            Impl(State& state, IAsyncTool& async_tool, IMemPool& mem_pool) :
+            Impl(State& state,
+                 IAsyncTool& async_tool,
+                 IMemPool& mem_pool) noexcept :
                 async_tool_(async_tool),
                 mem_pool_(mem_pool),
                 queue_{Queue::allocator_type(mem_pool)},
                 catch_trace(state.catch_trace),
                 ext_data_allocator(mem_pool)
             {}
+
             void sanity_check() noexcept
             {
                 if ((stack_top_ != nullptr) || exec_handle_) {
@@ -230,6 +233,16 @@ namespace futoin {
                 }
 
                 queue_.erase(sub_queue_begin, sub_queue_end);
+            }
+
+            void clear_queue()
+            {
+                for (auto& v : queue_) {
+                    auto& p = reinterpret_cast<ProtectorData&>(v);
+                    p.~ProtectorData();
+                }
+
+                queue_.clear();
             }
 
             IAsyncTool& async_tool_;
@@ -566,6 +579,7 @@ namespace futoin {
             limit_handle_.cancel();
 
             if (ext_data_ != nullptr) {
+                ext_data_->~ExtStepState();
                 root_->impl_->ext_data_allocator.deallocate(ext_data_, 1);
                 ext_data_ = nullptr;
             }
@@ -897,7 +911,7 @@ namespace futoin {
                 current = stack_top_;
             }
 
-            queue_.clear();
+            clear_queue();
         }
 
         void BaseAsyncSteps::Impl::handle_cancel() noexcept
@@ -924,7 +938,7 @@ namespace futoin {
                     stack_top_ = current->parent_;
                 }
 
-                queue_.clear();
+                clear_queue();
             } else {
                 std::promise<void> done;
                 auto task = [this, &done]() {
