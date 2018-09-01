@@ -398,6 +398,11 @@ namespace futoin {
                 return root_->newInstance();
             }
 
+            SyncRootID sync_root_id() const override
+            {
+                return root_->sync_root_id();
+            }
+
             // Dirty hack: the step serves as timeout functor (base
             // operator() is hidden)
             void operator()() noexcept
@@ -739,7 +744,7 @@ namespace futoin {
 
         void BaseAsyncSteps::Impl::execute_handler() noexcept
         {
-            exec_handle_.cancel();
+            exec_handle_.reset();
             ProtectorDataHolder* next_data = nullptr;
 
             while (stack_top_ != nullptr) {
@@ -952,6 +957,11 @@ namespace futoin {
                 async_tool_.immediate(std::ref(task));
                 done.get_future().wait();
             }
+        }
+
+        IAsyncSteps::SyncRootID BaseAsyncSteps::sync_root_id() const
+        {
+            return reinterpret_cast<SyncRootID>(this);
         }
 
         //---

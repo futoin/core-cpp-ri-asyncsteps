@@ -56,6 +56,7 @@ namespace futoin {
             asyncsteps::LoopState& add_loop() noexcept override;
             operator bool() const noexcept override;
             std::unique_ptr<IAsyncSteps> newInstance() noexcept override;
+            SyncRootID sync_root_id() const override;
 
         protected:
             BaseAsyncSteps(

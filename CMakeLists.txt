@@ -88,6 +88,7 @@ if (FUTOIN_WITH_TESTS)
     add_executable(RIAsyncStepsTest
         tests/asynctool.test.cpp
         tests/asyncsteps.test.cpp
+        tests/sync.test.cpp
         tests/main.test.cpp
     )
 
