@@ -912,6 +912,10 @@ namespace futoin {
             }
 
             clear_queue();
+
+            std::cout << "FATAL: unhandled AsyncStep error " << code
+                      << std::endl;
+            std::terminate();
         }
 
         void BaseAsyncSteps::Impl::handle_cancel() noexcept
