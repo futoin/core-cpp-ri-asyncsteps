@@ -165,7 +165,7 @@ namespace futoin {
                 async_tool_(async_tool),
                 mem_pool_(mem_pool),
                 queue_{Queue::allocator_type(mem_pool)},
-                catch_trace(state.catch_trace),
+                state_(state),
                 ext_data_allocator(mem_pool)
             {}
 
@@ -251,7 +251,7 @@ namespace futoin {
             Queue queue_;
             ProtectorData* stack_top_{nullptr};
             IAsyncTool::Handle exec_handle_;
-            State::CatchTrace& catch_trace;
+            State& state_;
             bool in_exec_ = false;
 
             IMemPool::Allocator<ExtStepState> ext_data_allocator;
@@ -790,7 +790,7 @@ namespace futoin {
                 in_exec_ = false;
             } catch (const std::exception& e) {
                 in_exec_ = false;
-                catch_trace(e);
+                state_.catch_trace(e);
                 next->handle_error(e.what());
             }
         }
@@ -901,7 +901,7 @@ namespace futoin {
                         }
                     } catch (const std::exception& e) {
                         in_exec_ = false;
-                        catch_trace(e);
+                        state_.catch_trace(e);
                         code_cache = e.what();
                         code = code_cache.c_str();
                     }
@@ -918,9 +918,13 @@ namespace futoin {
 
             clear_queue();
 
-            std::cout << "FATAL: unhandled AsyncStep error " << code
-                      << std::endl;
-            std::terminate();
+            if (state_.unhandled_error) {
+                state_.unhandled_error(code);
+            } else {
+                std::cout << "FATAL: unhandled AsyncStep error " << code
+                          << std::endl;
+                std::terminate();
+            }
         }
 
         void BaseAsyncSteps::Impl::handle_cancel() noexcept

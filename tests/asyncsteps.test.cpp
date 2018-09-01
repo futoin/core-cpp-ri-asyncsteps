@@ -282,9 +282,8 @@ BOOST_AUTO_TEST_CASE(wait_external_error) // NOLINT
     ri::AsyncTool at;
     ri::AsyncSteps asi(at);
 
-    using Promise = std::promise<void>;
     std::promise<IAsyncSteps*> wait;
-    Promise done;
+    std::promise<bool> done;
 
     size_t count = 0;
 
@@ -296,11 +295,15 @@ BOOST_AUTO_TEST_CASE(wait_external_error) // NOLINT
             },
             [&](IAsyncSteps& asi, ErrorCode err) {
                 ++count;
-                done.set_value();
+                done.set_value(true);
+                BOOST_CHECK_EQUAL(err, "SomeError");
+                asi.state<bool>("ok", true);
+                asi.success();
             });
     asi.add([&](IAsyncSteps& asi) {
-        count += 5;
-        done.set_value();
+        if (!asi.state<bool>("ok", false)) {
+            done.set_value(false);
+        }
     });
 
     asi.execute();
@@ -311,7 +314,7 @@ BOOST_AUTO_TEST_CASE(wait_external_error) // NOLINT
         // pass
     }
 
-    done.get_future().wait();
+    BOOST_CHECK(done.get_future().get());
     BOOST_CHECK_EQUAL(count, 2);
 }
 
@@ -320,9 +323,8 @@ BOOST_AUTO_TEST_CASE(set_timeout_success) // NOLINT
     ri::AsyncTool at;
     ri::AsyncSteps asi(at);
 
-    using Promise = std::promise<void>;
     std::promise<IAsyncSteps*> wait;
-    Promise done;
+    std::promise<void> done;
 
     size_t count = 0;
 
@@ -349,8 +351,7 @@ BOOST_AUTO_TEST_CASE(set_timeout_fail) // NOLINT
     ri::AsyncTool at;
     ri::AsyncSteps asi(at);
 
-    using Promise = std::promise<void>;
-    Promise done;
+    std::promise<void> done;
 
     size_t count = 0;
 
@@ -398,6 +399,7 @@ BOOST_AUTO_TEST_CASE(catch_trace) // NOLINT
                 asi.state<std::reference_wrapper<Promise>>("done")
                         .get()
                         .set_value();
+                asi.success();
             });
 
     asi.execute();
@@ -549,6 +551,7 @@ BOOST_AUTO_TEST_CASE(loop_error) // NOLINT
 
     std::promise<void> done;
     asi.state()["result"] = V();
+    asi.state().unhandled_error = [](futoin::ErrorCode) {};
 
     asi.loop(
             [&](IAsyncSteps& asi) {
@@ -784,6 +787,7 @@ BOOST_AUTO_TEST_CASE(error_outer) // NOLINT
 
     std::promise<void> done;
     asi.state()["result"] = V();
+    asi.state().unhandled_error = [](futoin::ErrorCode) {};
 
     auto& p = asi.parallel([](IAsyncSteps& asi, ErrorCode err) {
         asi.state<V>("result").push_back(0);
