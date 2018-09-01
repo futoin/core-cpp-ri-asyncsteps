@@ -929,8 +929,7 @@ namespace futoin {
 
         void BaseAsyncSteps::Impl::handle_cancel() noexcept
         {
-            if (async_tool_.is_same_thread()
-                || (!exec_handle_ && (stack_top_ == nullptr))) {
+            if (async_tool_.is_same_thread() || queue_.empty()) {
                 if (in_exec_) {
                     on_invalid_call("cancel() inside execution");
                 }

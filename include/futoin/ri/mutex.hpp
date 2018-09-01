@@ -102,27 +102,31 @@ namespace futoin {
                 }
 
                 //---
-                std::lock_guard<OSMutex> lock(mutex_);
+                IAsyncSteps* step = nullptr;
 
-                if (iter->count == 0) {
-                    free_list.splice(free_list.end(), queue_, iter);
-                } else {
-                    free_list.splice(free_list.end(), locked_list_, iter);
+                {
+                    std::lock_guard<OSMutex> lock(mutex_);
+
+                    if (iter->count == 0) {
+                        free_list.splice(free_list.end(), queue_, iter);
+                    } else {
+                        free_list.splice(free_list.end(), locked_list_, iter);
+                    }
+
+                    iter = std::move(locked_list_.end()); // clear
+
+                    //---
+                    auto next = queue_.begin();
+
+                    if (next != queue_.end()) {
+                        next->count = 1;
+                        step = next->pending;
+                        next->pending = nullptr;
+                        locked_list_.splice(locked_list_.end(), queue_, next);
+                    }
                 }
 
-                iter = std::move(locked_list_.end()); // clear
-
-                //---
-                auto next = queue_.begin();
-
-                if (next != queue_.end()) {
-                    next->count = 1;
-                    auto step = next->pending;
-                    next->pending = nullptr;
-                    locked_list_.splice(locked_list_.end(), queue_, next);
-                    lock.~lock_guard();
-
-                    // Make sure without holding mutex
+                if (step != nullptr) {
                     step->success();
                 }
             }

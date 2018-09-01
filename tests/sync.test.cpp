@@ -37,8 +37,8 @@ BOOST_AUTO_TEST_SUITE(mutex) // NOLINT
 
 BOOST_AUTO_TEST_CASE(outer) // NOLINT
 {
-    ri::AsyncTool at{[]() {}};
     ri::Mutex mtx;
+    ri::AsyncTool at{[]() {}};
 
     ri::AsyncSteps as1{at};
     ri::AsyncSteps as2{at};
@@ -67,8 +67,8 @@ BOOST_AUTO_TEST_CASE(outer) // NOLINT
 
 BOOST_AUTO_TEST_CASE(inner) // NOLINT
 {
-    ri::AsyncTool at{[]() {}};
     ri::Mutex mtx;
+    ri::AsyncTool at{[]() {}};
 
     ri::AsyncSteps as1{at};
     ri::AsyncSteps as2{at};
@@ -99,8 +99,8 @@ BOOST_AUTO_TEST_CASE(inner) // NOLINT
 
 BOOST_AUTO_TEST_CASE(args) // NOLINT
 {
-    ri::AsyncTool at{[]() {}};
     ri::Mutex mtx;
+    ri::AsyncTool at{[]() {}};
 
     ri::AsyncSteps asi{at};
 
@@ -117,8 +117,8 @@ BOOST_AUTO_TEST_CASE(args) // NOLINT
 
 BOOST_AUTO_TEST_CASE(recursion) // NOLINT
 {
-    ri::AsyncTool at{[]() {}};
     ri::Mutex mtx;
+    ri::AsyncTool at{[]() {}};
 
     ri::AsyncSteps as1{at};
     ri::AsyncSteps as2{at};
@@ -149,8 +149,8 @@ BOOST_AUTO_TEST_CASE(recursion) // NOLINT
 
 BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
 {
-    ri::AsyncTool at{[]() {}};
     ri::Mutex mtx(1, 1);
+    ri::AsyncTool at{[]() {}};
 
     ri::AsyncSteps as1{at};
     ri::AsyncSteps as2{at};
@@ -192,8 +192,8 @@ BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
 
 BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
 {
-    ri::AsyncTool at{[]() {}};
     ri::Mutex mtx(2);
+    ri::AsyncTool at{[]() {}};
 
     ri::AsyncSteps as1{at};
     ri::AsyncSteps as2{at};
