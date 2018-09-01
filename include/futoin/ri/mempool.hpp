@@ -31,6 +31,7 @@ namespace futoin {
         /**
          * @brief boost::pool-based type-erased memory pool
          */
+        template<typename Mutex>
         class BoostMemPool final : public IMemPool
         {
         public:
@@ -42,7 +43,7 @@ namespace futoin {
             void* allocate(
                     size_t /*object_size*/, size_t count) noexcept override
             {
-                std::lock_guard<std::mutex> lock(mutex);
+                std::lock_guard<Mutex> lock(mutex);
                 return pool.ordered_malloc(count);
             }
 
@@ -51,13 +52,13 @@ namespace futoin {
                     size_t /*object_size*/,
                     size_t count) noexcept override
             {
-                std::lock_guard<std::mutex> lock(mutex);
+                std::lock_guard<Mutex> lock(mutex);
                 pool.ordered_free(ptr, count);
             }
 
             void release_memory() noexcept override
             {
-                std::lock_guard<std::mutex> lock(mutex);
+                std::lock_guard<Mutex> lock(mutex);
                 pool.release_memory();
             }
 
@@ -70,7 +71,7 @@ namespace futoin {
         private:
             IMemPool& root;
             boost::pool<boost::default_user_allocator_malloc_free> pool;
-            std::mutex mutex;
+            Mutex mutex;
         };
 
         class PassthroughMemPool final : public futoin::PassthroughMemPool
@@ -91,6 +92,7 @@ namespace futoin {
         /**
          * @brief Manager of size-specific allocators
          */
+        template<typename Mutex = std::mutex>
         class MemPoolManager final : public IMemPool
         {
         public:
@@ -120,7 +122,7 @@ namespace futoin {
 
             void release_memory() noexcept override
             {
-                std::lock_guard<std::mutex> lock(mutex);
+                std::lock_guard<Mutex> lock(mutex);
 
                 for (auto p : pools) {
                     if (p != nullptr) {
@@ -140,11 +142,11 @@ namespace futoin {
                         auto p = pools[key];
 
                         if (p == nullptr) {
-                            std::lock_guard<std::mutex> lock(mutex);
+                            std::lock_guard<Mutex> lock(mutex);
                             p = pools[key];
 
                             if (p == nullptr) {
-                                p = new BoostMemPool(
+                                p = new BoostMemPool<Mutex>(
                                         *this, key * sizeof(ptrdiff_t));
                                 pools[key] = p;
                             } else {
@@ -166,7 +168,7 @@ namespace futoin {
             // 64x8
             static constexpr size_t MAX_OBJECT_SIZE_IN_POINTERS = 64;
             std::array<IMemPool*, MAX_OBJECT_SIZE_IN_POINTERS> pools{nullptr};
-            std::mutex mutex;
+            Mutex mutex;
             PassthroughMemPool default_pool{*this};
         };
     } // namespace ri

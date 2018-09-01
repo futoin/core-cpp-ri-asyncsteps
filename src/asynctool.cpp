@@ -353,7 +353,7 @@ namespace futoin {
             std::thread::id reactor_thread_id;
             std::unique_ptr<std::thread> thread;
 
-            MemPoolManager mem_pool;
+            MemPoolManager<> mem_pool;
         };
 
         AsyncTool::AsyncTool() noexcept : impl_(new Impl)
