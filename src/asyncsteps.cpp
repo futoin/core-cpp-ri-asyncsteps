@@ -77,7 +77,11 @@ namespace futoin {
             ~ExtStepState() noexcept
             {
                 if (await_thread_) {
-                    await_thread_->join();
+                    if (await_thread_->get_id() == std::this_thread::get_id()) {
+                        await_thread_->detach();
+                    } else {
+                        await_thread_->join();
+                    }
                 }
             }
 
@@ -463,21 +467,14 @@ namespace futoin {
                     auto& that = static_cast<Protector&>(asi);
                     auto& ext = *(that.ext_data_);
                     ext.continue_await.store(false, std::memory_order_release);
-
-                    auto handle = ext.await_thread_->native_handle();
-#ifdef __linux__
-                    //pthread_cancel(handle);
-                    (void) handle;
-#else
-                    (void) handle;
-#endif
                 });
 
                 ext.await_thread_.reset(new std::thread(
                         [](Protector& asp) {
                             auto& ext = *(asp.ext_data_);
                             auto root_impl = asp.root_->impl_;
-                            root_impl->await_thread_id_ = std::this_thread::get_id();
+                            root_impl->await_thread_id_ =
+                                    std::this_thread::get_id();
 
                             while (ext.continue_await.load(
                                     std::memory_order_consume)) {

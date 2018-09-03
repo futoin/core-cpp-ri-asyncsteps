@@ -1007,6 +1007,7 @@ BOOST_AUTO_TEST_CASE(await_error) // NOLINT
 
     std::atomic_size_t count{0};
     std::promise<int> ext;
+    std::promise<void> done;
 
     asi.add(
             [&](IAsyncSteps& asi) {
@@ -1024,18 +1025,16 @@ BOOST_AUTO_TEST_CASE(await_error) // NOLINT
                 count.fetch_add(5);
                 asi();
             });
+    asi.add([&](IAsyncSteps& asi) {
+        BOOST_CHECK_EQUAL(count.load(), 6);
+        done.set_value();
+    });
 
     asi.execute();
 
     at.deferred(TEST_DELAY, [&]() {
         BOOST_CHECK_EQUAL(count.load(), 1);
         ext.set_exception(std::make_exception_ptr(Error("MyError")));
-    });
-
-    std::promise<void> done;
-    at.deferred(TEST_DELAY * 2, [&]() {
-        BOOST_CHECK_EQUAL(count.load(), 6);
-        done.set_value();
     });
 
     done.get_future().wait();
