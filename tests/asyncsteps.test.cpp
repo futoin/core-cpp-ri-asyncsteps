@@ -833,6 +833,218 @@ BOOST_AUTO_TEST_SUITE_END() // NOLINT
 
 //=============================================================================
 
+BOOST_AUTO_TEST_SUITE(futures) // NOLINT
+
+BOOST_AUTO_TEST_CASE(promise_void) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    std::atomic_size_t count{0};
+
+    asi.add([&](IAsyncSteps& asi) {
+        count.fetch_add(1);
+
+        asi.add([&](IAsyncSteps&) { count.fetch_add(1); });
+    });
+    asi.add([&](IAsyncSteps& asi) { count.fetch_add(1); });
+
+    asi.promise().wait();
+    BOOST_CHECK_EQUAL(count.load(), 3);
+}
+
+BOOST_AUTO_TEST_CASE(promise_res) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    std::atomic_size_t count{0};
+
+    asi.add([&](IAsyncSteps& asi) {
+        count.fetch_add(1);
+
+        asi.add([&](IAsyncSteps&) { count.fetch_add(1); });
+    });
+    asi.add([&](IAsyncSteps& asi) {
+        count.fetch_add(1);
+        asi(123);
+    });
+
+    BOOST_CHECK_EQUAL(asi.promise<int>().get(), 123);
+    BOOST_CHECK_EQUAL(count.load(), 3);
+}
+
+BOOST_AUTO_TEST_CASE(promise_error) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    std::atomic_size_t count{0};
+
+    asi.add([&](IAsyncSteps& asi) {
+        count.fetch_add(1);
+
+        asi.add([&](IAsyncSteps& asi) {
+            count.fetch_add(1);
+            asi.error("MyError");
+        });
+    });
+    asi.add([&](IAsyncSteps& asi) {
+        count.fetch_add(1);
+        asi(123);
+    });
+
+    BOOST_CHECK_THROW(asi.promise().get(), Error);
+    BOOST_CHECK_EQUAL(count.load(), 2);
+}
+
+BOOST_AUTO_TEST_CASE(await_void) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    std::atomic_size_t count{0};
+    std::promise<void> ext;
+
+    asi.add([&](IAsyncSteps& asi) {
+        count.fetch_add(1);
+
+        asi.await(ext.get_future());
+
+        asi.add([&](IAsyncSteps&) { count.fetch_add(1); });
+    });
+
+    asi.execute();
+
+    at.deferred(TEST_DELAY, [&]() {
+        BOOST_CHECK_EQUAL(count.load(), 1);
+        ext.set_value();
+    });
+
+    std::promise<void> done;
+    at.deferred(TEST_DELAY * 2, [&]() {
+        BOOST_CHECK_EQUAL(count.load(), 2);
+        done.set_value();
+    });
+
+    done.get_future().wait();
+}
+
+BOOST_AUTO_TEST_CASE(await_res) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    std::atomic_size_t count{0};
+    std::promise<int> ext;
+
+    asi.add([&](IAsyncSteps& asi) {
+        count.fetch_add(1);
+
+        asi.await(ext.get_future());
+
+        asi.add([&](IAsyncSteps&, int a) {
+            BOOST_CHECK_EQUAL(a, 123);
+            count.fetch_add(1);
+        });
+    });
+
+    asi.execute();
+
+    at.deferred(TEST_DELAY, [&]() {
+        BOOST_CHECK_EQUAL(count.load(), 1);
+        ext.set_value(123);
+    });
+
+    std::promise<void> done;
+    at.deferred(TEST_DELAY * 2, [&]() {
+        BOOST_CHECK_EQUAL(count.load(), 2);
+        done.set_value();
+    });
+
+    done.get_future().wait();
+}
+
+BOOST_AUTO_TEST_CASE(await_cancel) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    std::atomic_size_t count{0};
+    std::promise<int> ext;
+
+    asi.add([&](IAsyncSteps& asi) {
+        count.fetch_add(1);
+
+        asi.await(ext.get_future());
+
+        asi.add([&](IAsyncSteps&, int a) {
+            BOOST_CHECK_EQUAL(a, 123);
+            count.fetch_add(1);
+        });
+    });
+
+    asi.execute();
+
+    at.deferred(TEST_DELAY, [&]() {
+        BOOST_CHECK_EQUAL(count.load(), 1);
+        asi.cancel();
+    });
+
+    std::promise<void> done;
+    at.deferred(TEST_DELAY * 2, [&]() {
+        BOOST_CHECK_EQUAL(count.load(), 1);
+        done.set_value();
+    });
+
+    done.get_future().wait();
+}
+
+BOOST_AUTO_TEST_CASE(await_error) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    std::atomic_size_t count{0};
+    std::promise<int> ext;
+
+    asi.add(
+            [&](IAsyncSteps& asi) {
+                count.fetch_add(1);
+
+                asi.await(ext.get_future());
+
+                asi.add([&](IAsyncSteps&, int a) {
+                    BOOST_CHECK_EQUAL(a, 123);
+                    count.fetch_add(1);
+                });
+            },
+            [&](IAsyncSteps& asi, ErrorCode err) {
+                BOOST_CHECK_EQUAL(err, "MyError");
+                count.fetch_add(5);
+                asi();
+            });
+
+    asi.execute();
+
+    at.deferred(TEST_DELAY, [&]() {
+        BOOST_CHECK_EQUAL(count.load(), 1);
+        ext.set_exception(std::make_exception_ptr(Error("MyError")));
+    });
+
+    std::promise<void> done;
+    at.deferred(TEST_DELAY * 2, [&]() {
+        BOOST_CHECK_EQUAL(count.load(), 6);
+        done.set_value();
+    });
+
+    done.get_future().wait();
+}
+
+BOOST_AUTO_TEST_SUITE_END() // NOLINT
+
+//=============================================================================
+
 BOOST_AUTO_TEST_SUITE(spi) // NOLINT
 
 constexpr size_t TEST_STEP_INSTANCE_COUNT = 128;

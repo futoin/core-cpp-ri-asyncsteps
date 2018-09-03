@@ -53,10 +53,12 @@ namespace futoin {
             void waitExternal() noexcept override;
             void execute() noexcept override;
             void cancel() noexcept override;
+            using IAsyncSteps::promise;
             asyncsteps::LoopState& add_loop() noexcept override;
             operator bool() const noexcept override;
             std::unique_ptr<IAsyncSteps> newInstance() noexcept override;
             SyncRootID sync_root_id() const override;
+            void await_impl(AwaitPass /*awp*/) noexcept override;
 
         protected:
             BaseAsyncSteps(

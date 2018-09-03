@@ -50,7 +50,7 @@ namespace futoin {
             BaseMutex(
                     size_type max = 1,
                     size_type queue_max =
-                            std::numeric_limits<size_type>::max()) :
+                            std::numeric_limits<size_type>::max()) noexcept :
                 max_(max),
                 queue_max_(queue_max),
                 this_key_(key_from_pointer(this))
@@ -63,20 +63,20 @@ namespace futoin {
                 if (iter == locked_list_.end()) {
                     std::lock_guard<OSMutex> lock(mutex_);
 
-                    if (free_list.empty()) {
-                        free_list.emplace_back();
+                    if (free_list_.empty()) {
+                        free_list_.emplace_back();
                     }
 
-                    iter = free_list.begin();
+                    iter = free_list_.begin();
 
-                    if (locked_list_.size() < max_) {
+                    if (queue_.empty() && (locked_list_.size() < max_)) {
                         iter->count = 1;
                         locked_list_.splice(
-                                locked_list_.end(), free_list, iter);
+                                locked_list_.end(), free_list_, iter);
                     } else if (queue_.size() < queue_max_) {
                         iter->count = 0;
                         iter->pending = &asi;
-                        queue_.splice(queue_.end(), free_list, iter);
+                        queue_.splice(queue_.end(), free_list_, iter);
                         asi.waitExternal();
                     } else {
                         iter = std::move(locked_list_.end()); // clear
@@ -102,39 +102,39 @@ namespace futoin {
                 }
 
                 //---
-                IAsyncSteps* step = nullptr;
+                std::lock_guard<OSMutex> lock(mutex_);
 
-                {
-                    std::lock_guard<OSMutex> lock(mutex_);
-
-                    if (iter->count == 0) {
-                        free_list.splice(free_list.end(), queue_, iter);
-                    } else {
-                        free_list.splice(free_list.end(), locked_list_, iter);
-                    }
-
-                    iter = std::move(locked_list_.end()); // clear
-
-                    //---
-                    auto next = queue_.begin();
-
-                    if (next != queue_.end()) {
-                        next->count = 1;
-                        step = next->pending;
-                        next->pending = nullptr;
-                        locked_list_.splice(locked_list_.end(), queue_, next);
-                    }
+                if (iter->count == 0) {
+                    free_list_.splice(free_list_.end(), queue_, iter);
+                } else {
+                    free_list_.splice(free_list_.end(), locked_list_, iter);
                 }
 
-                if (step != nullptr) {
-                    step->success();
+                iter = std::move(locked_list_.end()); // clear
+
+                //---
+                while (locked_list_.size() < max_) {
+                    auto next = queue_.begin();
+
+                    if (next == queue_.end()) {
+                        break;
+                    }
+
+                    next->count = 1;
+                    auto step = next->pending;
+                    next->pending = nullptr;
+                    locked_list_.splice(locked_list_.end(), queue_, next);
+
+                    if (step != nullptr) {
+                        step->success();
+                    }
                 }
             }
 
             void shrink_to_fit()
             {
                 std::lock_guard<OSMutex> lock(mutex_);
-                free_list.clear();
+                free_list_.clear();
             }
 
         protected:
@@ -154,7 +154,7 @@ namespace futoin {
             const size_type queue_max_;
             ASInfoList locked_list_;
             ASInfoList queue_;
-            ASInfoList free_list;
+            ASInfoList free_list_;
 
             const futoin::string this_key_;
 
@@ -165,6 +165,9 @@ namespace futoin {
         template<typename OSMutex>
         typename IMemPool::Allocator<typename BaseMutex<OSMutex>::ASInfo>::
                 EnsureOptimized BaseMutex<OSMutex>::alloc_optimizer;
+
+        extern template class BaseMutex<ISync::NoopOSMutex>;
+        extern template class BaseMutex<std::mutex>;
 
         using ThreadlessMutex = BaseMutex<ISync::NoopOSMutex>;
         using Mutex = BaseMutex<std::mutex>;

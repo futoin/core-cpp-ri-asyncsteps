@@ -15,30 +15,11 @@
 //   limitations under the License.
 //-----------------------------------------------------------------------------
 
-#ifndef FUTOIN_RI_LIMITER_HPP
-#define FUTOIN_RI_LIMITER_HPP
-//---
-#include <futoin/iasyncsteps.hpp>
-//---
-#include <mutex>
+#include <futoin/ri/limiter.hpp>
 
 namespace futoin {
     namespace ri {
-        template<typename OSMutex>
-        class BaseLimiter : public ISync
-        {
-        public:
-            void lock(IAsyncSteps& /*asi*/) override {}
-            void unlock(IAsyncSteps& /*asi*/) noexcept override {}
-        };
-
-        extern template class BaseLimiter<ISync::NoopOSMutex>;
-        extern template class BaseLimiter<std::mutex>;
-
-        using ThreadlessLimiter = BaseLimiter<ISync::NoopOSMutex>;
-        using Limiter = BaseLimiter<std::mutex>;
+        template class BaseLimiter<ISync::NoopOSMutex>;
+        template class BaseLimiter<std::mutex>;
     } // namespace ri
 } // namespace futoin
-
-//---
-#endif // FUTOIN_RI_LIMITER_HPP

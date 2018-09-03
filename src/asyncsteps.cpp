@@ -27,8 +27,8 @@
 
 namespace futoin {
     namespace ri {
-
         using namespace futoin::asyncsteps;
+        constexpr std::chrono::milliseconds AWAIT_DELAY{100};
 
         //---
         [[noreturn]] static void on_invalid_call(
@@ -74,6 +74,13 @@ namespace futoin {
                 error_code_{futoin::string::allocator_type(mem_pool)}
             {}
 
+            ~ExtStepState() noexcept
+            {
+                if (await_thread_) {
+                    await_thread_->join();
+                }
+            }
+
             // Loop stuff
             //--------------------
             // Actual add() -> func
@@ -117,6 +124,13 @@ namespace futoin {
             ParallelItems items_;
             std::size_t completed_{0};
             futoin::string error_code_;
+
+            // Await step stuff
+            //--------------------
+            AwaitPass::Storage await_storage_;
+            asyncsteps::AwaitCallback await_func_;
+            std::unique_ptr<std::thread> await_thread_;
+            std::atomic_bool continue_await{true};
         };
 
         class BaseAsyncSteps::ProtectorData : public IAsyncSteps
@@ -245,6 +259,19 @@ namespace futoin {
                 queue_.clear();
             }
 
+            bool is_safe_to_process()
+            {
+                if (async_tool_.is_same_thread()) {
+                    return true;
+                }
+
+                if (std::this_thread::get_id() == await_thread_id_) {
+                    return true;
+                }
+
+                return false;
+            }
+
             IAsyncTool& async_tool_;
             IMemPool& mem_pool_;
             NextArgs next_args_;
@@ -252,6 +279,7 @@ namespace futoin {
             ProtectorData* stack_top_{nullptr};
             IAsyncTool::Handle exec_handle_;
             State& state_;
+            std::thread::id await_thread_id_;
             bool in_exec_ = false;
 
             IMemPool::Allocator<ExtStepState> ext_data_allocator;
@@ -358,7 +386,7 @@ namespace futoin {
                 on_invalid_call("cancel() in execute()");
             }
 
-            LoopState& alloc_ext_data(bool is_loop) noexcept
+            ExtStepState& alloc_ext_data(bool is_loop) noexcept
             {
                 auto impl = root_->impl_;
                 assert(!ext_data_);
@@ -411,6 +439,59 @@ namespace futoin {
                     this->error(errors::Timeout);
                 } catch (...) {
                 }
+            }
+
+            void await_impl(AwaitPass awp) noexcept override
+            {
+                sanity_check();
+
+                auto buf = root_->impl_->alloc_step();
+                auto step = new (buf) Protector(*root_, this);
+
+                step->data_.func_ = &Protector::await_handler;
+
+                auto& ext = step->alloc_ext_data(false);
+                awp.move(ext.await_func_, ext.await_storage_);
+            }
+
+            static void await_handler(IAsyncSteps& asi) noexcept
+            {
+                auto& that = static_cast<Protector&>(asi);
+                auto& ext = *(that.ext_data_);
+
+                asi.setCancel([](IAsyncSteps& asi) {
+                    auto& that = static_cast<Protector&>(asi);
+                    auto& ext = *(that.ext_data_);
+                    ext.continue_await.store(false, std::memory_order_release);
+
+                    auto handle = ext.await_thread_->native_handle();
+#ifdef __linux__
+                    //pthread_cancel(handle);
+                    (void) handle;
+#else
+                    (void) handle;
+#endif
+                });
+
+                ext.await_thread_.reset(new std::thread(
+                        [](Protector& asp) {
+                            auto& ext = *(asp.ext_data_);
+                            auto root_impl = asp.root_->impl_;
+                            root_impl->await_thread_id_ = std::this_thread::get_id();
+
+                            while (ext.continue_await.load(
+                                    std::memory_order_consume)) {
+                                try {
+                                    if (ext.await_func_(asp, AWAIT_DELAY)) {
+                                        break;
+                                    }
+                                } catch (const std::exception& e) {
+                                    root_impl->state_.catch_trace(e);
+                                    root_impl->handle_error(&asp, e.what());
+                                }
+                            }
+                        },
+                        std::ref(that)));
             }
         };
 
@@ -798,7 +879,7 @@ namespace futoin {
         void BaseAsyncSteps::Impl::handle_success(
                 ProtectorData* current) noexcept
         {
-            if (!async_tool_.is_same_thread()) {
+            if (!is_safe_to_process()) {
                 std::promise<void> done;
                 auto task = [this, current, &done]() {
                     this->handle_success(current);
@@ -840,7 +921,7 @@ namespace futoin {
         void BaseAsyncSteps::Impl::handle_error(
                 ProtectorData* current, ErrorCode code) noexcept
         {
-            if (!async_tool_.is_same_thread()) {
+            if (!is_safe_to_process()) {
                 std::promise<void> done;
                 auto task = [this, current, code, &done]() {
                     this->handle_error(current, code);
@@ -965,6 +1046,19 @@ namespace futoin {
         IAsyncSteps::SyncRootID BaseAsyncSteps::sync_root_id() const
         {
             return reinterpret_cast<SyncRootID>(this);
+        }
+
+        void BaseAsyncSteps::await_impl(AwaitPass awp) noexcept
+        {
+            impl_->sanity_check();
+
+            auto buf = impl_->alloc_step();
+            auto step = new (buf) Protector(*this, nullptr);
+
+            step->data_.func_ = &Protector::await_handler;
+
+            auto& ext = step->alloc_ext_data(false);
+            awp.move(ext.await_func_, ext.await_storage_);
         }
 
         //---

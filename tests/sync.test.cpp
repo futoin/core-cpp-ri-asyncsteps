@@ -24,6 +24,7 @@
 #include <futoin/ri/throttle.hpp>
 
 #include <atomic>
+#include <future>
 
 namespace ri = futoin::ri;
 using futoin::ErrorCode;
@@ -224,6 +225,143 @@ BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
     as4.execute();
     while (at.iterate().have_work) {
     }
+
+    BOOST_CHECK_EQUAL(max, 2);
+    BOOST_CHECK_EQUAL(count, 0);
+}
+
+BOOST_AUTO_TEST_SUITE_END() // NOLINT
+
+//=============================================================================
+
+BOOST_AUTO_TEST_SUITE(throttle) // NOLINT
+
+BOOST_AUTO_TEST_CASE(outer) // NOLINT
+{
+    ri::AsyncTool at{[]() {}};
+    ri::Throttle thr(at, 1, std::chrono::milliseconds(150));
+
+    ri::AsyncSteps as1{at};
+    ri::AsyncSteps as2{at};
+
+    std::atomic_size_t count{0};
+    std::atomic_size_t max{0};
+    std::atomic_size_t done{0};
+
+    auto f = [&](IAsyncSteps& asi) {
+        count.fetch_add(1);
+        asi.add([&](IAsyncSteps& asi) {
+            max.store(std::max(max, count));
+            count.fetch_sub(1);
+        });
+    };
+    auto df = [&](IAsyncSteps& asi) { done.fetch_add(1); };
+
+    as1.sync(thr, f);
+    as2.sync(thr, f);
+
+    as1.add(df);
+    as2.add(df);
+
+    as1.execute();
+    as2.execute();
+    while (at.iterate().have_work && (done.load() != 2)) {
+    }
+
+    BOOST_CHECK_EQUAL(max, 1);
+    BOOST_CHECK_EQUAL(count, 0);
+}
+
+BOOST_AUTO_TEST_CASE(args) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::Throttle thr(at, 1);
+
+    ri::AsyncSteps asi{at};
+
+    asi.add([](IAsyncSteps& asi) { asi(123, true); });
+    asi.sync(thr, [](IAsyncSteps& asi, int a, bool b) {
+        BOOST_CHECK_EQUAL(a, 123);
+        BOOST_CHECK_EQUAL(b, true);
+    });
+
+    std::promise<void> done;
+    asi.add([&](IAsyncSteps& asi) { done.set_value(); });
+
+    asi.execute();
+    done.get_future().wait();
+}
+
+BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::Throttle thr(at, 1, ri::Throttle::milliseconds(1000), 1);
+
+    ri::AsyncSteps as1{at};
+    ri::AsyncSteps as2{at};
+    ri::AsyncSteps as3{at};
+
+    std::atomic_size_t count{0};
+    std::atomic_size_t max{0};
+
+    auto f = [&](IAsyncSteps& asi) {
+        asi.sync(thr, [&](IAsyncSteps& asi) {
+            count.fetch_add(1);
+            asi.add([&](IAsyncSteps& asi) {
+                max.store(std::max(max, count));
+                count.fetch_sub(1);
+                asi(false);
+            });
+        });
+    };
+
+    as1.add(f);
+    as2.add(f);
+    as3.add(f, [&](IAsyncSteps& asi, ErrorCode err) {
+        BOOST_CHECK_EQUAL(err, "DefenseRejected");
+        BOOST_CHECK_EQUAL(asi.state().error_info, "Throttle queue limit");
+        asi(true);
+    });
+
+    as1.execute();
+    as2.execute();
+    BOOST_CHECK(as3.promise<bool>().get());
+    BOOST_CHECK_EQUAL(max, 1);
+    BOOST_CHECK_EQUAL(count, 0);
+}
+
+BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::Throttle thr(at, 2, ri::Throttle::milliseconds(150));
+
+    ri::AsyncSteps as1{at};
+    ri::AsyncSteps as2{at};
+    ri::AsyncSteps as3{at};
+    ri::AsyncSteps as4{at};
+
+    std::atomic_size_t count{0};
+    std::atomic_size_t max{0};
+
+    auto f = [&](IAsyncSteps& asi) {
+        asi.sync(thr, [&](IAsyncSteps& asi) {
+            count.fetch_add(1);
+            asi.add([&](IAsyncSteps& asi) {
+                max.store(std::max(max, count));
+                count.fetch_sub(1);
+            });
+        });
+    };
+
+    as1.add(f);
+    as2.add(f);
+    as3.add(f);
+    as4.add(f);
+
+    as1.execute();
+    as2.execute();
+    as3.execute();
+    as4.promise().wait();
 
     BOOST_CHECK_EQUAL(max, 2);
     BOOST_CHECK_EQUAL(count, 0);
