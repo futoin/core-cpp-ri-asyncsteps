@@ -646,12 +646,11 @@ namespace futoin {
             static void cancel_cb(IAsyncSteps& asi)
             {
                 auto& that = static_cast<ParallelStep&>(asi);
+                auto& ext = that.ext_data_;
 
-                if (that.ext_data_->error_code_.empty()) {
+                if (ext->error_code_.empty()) {
                     // Not caused by inner error
-                    for (auto& v : that.ext_data_->items_) {
-                        v.cancel();
-                    }
+                    ext->items_.clear();
                 }
             }
         };
