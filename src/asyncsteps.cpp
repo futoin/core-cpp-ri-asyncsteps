@@ -28,7 +28,11 @@
 namespace futoin {
     namespace ri {
         using namespace futoin::asyncsteps;
-        constexpr std::chrono::milliseconds AWAIT_DELAY{100};
+
+        constexpr inline std::chrono::milliseconds AWAIT_DELAY()
+        {
+            return std::chrono::milliseconds{10};
+        }
 
         //---
         [[noreturn]] static void on_invalid_call(
@@ -48,21 +52,11 @@ namespace futoin {
         }
 
         //---
-        class SubAsyncSteps final : public BaseAsyncSteps
+        struct SubAsyncSteps final : public BaseAsyncSteps
         {
-        public:
             SubAsyncSteps(State& state, IAsyncTool& async_tool) noexcept :
-                BaseAsyncSteps(state, async_tool),
-                state_(state)
+                BaseAsyncSteps(state, async_tool)
             {}
-
-            State& state() noexcept override
-            {
-                return state_;
-            }
-
-        private:
-            State& state_;
         };
 
         //---
@@ -354,7 +348,6 @@ namespace futoin {
 
             State& state() noexcept override
             {
-                sanity_check();
                 return root_->state();
             }
 
@@ -479,7 +472,7 @@ namespace futoin {
                             while (ext.continue_await.load(
                                     std::memory_order_consume)) {
                                 try {
-                                    if (ext.await_func_(asp, AWAIT_DELAY)) {
+                                    if (ext.await_func_(asp, AWAIT_DELAY())) {
                                         break;
                                     }
                                 } catch (const std::exception& e) {
@@ -1057,16 +1050,16 @@ namespace futoin {
             awp.move(ext.await_func_, ext.await_storage_);
         }
 
+        State& BaseAsyncSteps::state() noexcept
+        {
+            return impl_->state_;
+        }
+
         //---
         AsyncSteps::AsyncSteps(IAsyncTool& at) noexcept :
             BaseAsyncSteps(state_, at),
             state_(at.mem_pool())
         {}
-
-        State& AsyncSteps::state() noexcept
-        {
-            return state_;
-        }
 
         struct BaseAsyncSteps::AllocOptimizer
         {

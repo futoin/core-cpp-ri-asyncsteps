@@ -59,6 +59,9 @@ namespace futoin {
             std::unique_ptr<IAsyncSteps> newInstance() noexcept override;
             SyncRootID sync_root_id() const override;
             void await_impl(AwaitPass /*awp*/) noexcept override;
+            asyncsteps::State& state() noexcept override;
+
+            using IAsyncSteps::state;
 
         protected:
             BaseAsyncSteps(
@@ -89,9 +92,6 @@ namespace futoin {
             AsyncSteps(AsyncSteps&&) = default;
             AsyncSteps& operator=(AsyncSteps&&) = default;
             ~AsyncSteps() noexcept override = default;
-
-            asyncsteps::State& state() noexcept override;
-            using BaseAsyncSteps::state;
 
         private:
             asyncsteps::State state_;
