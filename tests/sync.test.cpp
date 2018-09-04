@@ -371,4 +371,289 @@ BOOST_AUTO_TEST_SUITE_END() // NOLINT
 
 //=============================================================================
 
+BOOST_AUTO_TEST_SUITE(limiter) // NOLINT
+
+BOOST_AUTO_TEST_CASE(outer_concurrent) // NOLINT
+{
+    ri::AsyncTool at{[]() {}};
+
+    ri::Limiter::Params prm;
+    prm.rate = 2;
+    prm.max_queue = 1;
+    ri::Limiter lmtr(at, prm);
+
+    ri::AsyncSteps as1{at};
+    ri::AsyncSteps as2{at};
+
+    std::atomic_size_t count{0};
+    std::atomic_size_t max{0};
+
+    auto f = [&](IAsyncSteps& asi) {
+        count.fetch_add(1);
+        asi.add([&](IAsyncSteps& asi) {
+            max.store(std::max(max, count));
+            count.fetch_sub(1);
+        });
+    };
+
+    as1.sync(lmtr, f);
+    as2.sync(lmtr, f);
+
+    //---
+    std::atomic_size_t done{0};
+
+    auto df = [&](IAsyncSteps& asi) { done.fetch_add(1); };
+
+    as1.add(df);
+    as2.add(df);
+
+    //---
+    as1.execute();
+    as2.execute();
+
+    while (at.iterate().have_work && (done.load() != 2)) {
+    }
+
+    BOOST_CHECK_EQUAL(max, 1);
+    BOOST_CHECK_EQUAL(count, 0);
+}
+
+BOOST_AUTO_TEST_CASE(inner_concurrent) // NOLINT
+{
+    ri::AsyncTool at{[]() {}};
+
+    ri::Limiter::Params prm;
+    prm.rate = 2;
+    prm.max_queue = 1;
+    ri::Limiter lmtr(at, prm);
+
+    ri::AsyncSteps as1{at};
+    ri::AsyncSteps as2{at};
+
+    std::atomic_size_t count{0};
+    std::atomic_size_t max{0};
+
+    auto f = [&](IAsyncSteps& asi) {
+        asi.sync(lmtr, [&](IAsyncSteps& asi) {
+            count.fetch_add(1);
+            asi.add([&](IAsyncSteps& asi) {
+                max.store(std::max(max, count));
+                count.fetch_sub(1);
+            });
+        });
+    };
+
+    as1.add(f);
+    as2.add(f);
+
+    //---
+    std::atomic_size_t done{0};
+
+    auto df = [&](IAsyncSteps& asi) { done.fetch_add(1); };
+
+    as1.add(df);
+    as2.add(df);
+    //---
+
+    as1.execute();
+    as2.execute();
+
+    while (at.iterate().have_work && (done.load() != 2)) {
+    }
+
+    BOOST_CHECK_EQUAL(max, 1);
+    BOOST_CHECK_EQUAL(count, 0);
+}
+
+BOOST_AUTO_TEST_CASE(args) // NOLINT
+{
+    ri::AsyncTool at;
+
+    ri::Limiter lmtr(at, {});
+
+    ri::AsyncSteps asi{at};
+
+    asi.add([](IAsyncSteps& asi) { asi(123, true); });
+    asi.sync(lmtr, [](IAsyncSteps& asi, int a, bool b) {
+        BOOST_CHECK_EQUAL(a, 123);
+        BOOST_CHECK_EQUAL(b, true);
+    });
+
+    asi.promise().wait();
+}
+
+BOOST_AUTO_TEST_CASE(recursion) // NOLINT
+{
+    ri::AsyncTool at{[]() {}};
+
+    ri::Limiter::Params prm;
+    prm.rate = 4;
+    prm.max_queue = 1;
+    ri::Limiter lmtr(at, prm);
+
+    ri::AsyncSteps as1{at};
+    ri::AsyncSteps as2{at};
+
+    std::atomic_size_t count{0};
+    std::atomic_size_t max{0};
+
+    auto f = [&](IAsyncSteps& asi) {
+        asi.sync(lmtr, [&](IAsyncSteps& asi) {
+            count.fetch_add(1);
+            asi.sync(lmtr, [&](IAsyncSteps& asi) {
+                max.store(std::max(max, count));
+                count.fetch_sub(1);
+            });
+        });
+    };
+
+    as1.add(f);
+    as2.add(f);
+
+    //---
+    std::atomic_size_t done{0};
+
+    auto df = [&](IAsyncSteps& asi) { done.fetch_add(1); };
+
+    as1.add(df);
+    as2.add(df);
+
+    //---
+    as1.execute();
+    as2.execute();
+
+    while (at.iterate().have_work && (done.load() != 2)) {
+    }
+
+    BOOST_CHECK_EQUAL(max, 1);
+    BOOST_CHECK_EQUAL(count, 0);
+}
+
+BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
+{
+    ri::AsyncTool at{[]() {}};
+
+    ri::Limiter::Params prm;
+    prm.max_queue = 1;
+    prm.rate = 4;
+    ri::Limiter lmtr(at, prm);
+
+    ri::AsyncSteps as1{at};
+    ri::AsyncSteps as2{at};
+    ri::AsyncSteps as3{at};
+
+    std::atomic_size_t count{0};
+    std::atomic_size_t max{0};
+
+    auto f = [&](IAsyncSteps& asi) {
+        asi.sync(lmtr, [&](IAsyncSteps& asi) {
+            count.fetch_add(1);
+            asi.sync(lmtr, [&](IAsyncSteps& asi) {
+                max.store(std::max(max, count));
+                count.fetch_sub(1);
+            });
+        });
+    };
+
+    as1.add(f);
+    as2.add(f);
+    bool called = false;
+    as3.add(f, [&](IAsyncSteps& asi, ErrorCode err) {
+        BOOST_CHECK_EQUAL(err, "DefenseRejected");
+        BOOST_CHECK_EQUAL(asi.state().error_info, "Mutex queue limit");
+        called = true;
+        asi();
+    });
+
+    //---
+    std::atomic_size_t done{0};
+
+    auto df = [&](IAsyncSteps& asi) { done.fetch_add(1); };
+
+    as1.add(df);
+    as2.add(df);
+    as3.add(df);
+
+    //---
+
+    as1.execute();
+    as2.execute();
+    as3.execute();
+
+    while (at.iterate().have_work && (done.load() != 3)) {
+    }
+
+    BOOST_CHECK(called);
+    BOOST_CHECK_EQUAL(max, 1);
+    BOOST_CHECK_EQUAL(count, 0);
+}
+
+BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
+{
+    ri::AsyncTool at{[]() {}};
+
+    ri::Limiter::Params prm;
+    prm.concurrent = 2;
+    prm.max_queue = 2;
+    prm.rate = 4;
+    prm.burst = 4;
+    prm.period = ri::Limiter::milliseconds{150};
+    ri::Limiter lmtr(at, prm);
+
+    ri::AsyncSteps as1{at};
+    ri::AsyncSteps as2{at};
+    ri::AsyncSteps as3{at};
+    ri::AsyncSteps as4{at};
+
+    std::atomic_size_t count{0};
+    std::atomic_size_t max{0};
+
+    auto f = [&](IAsyncSteps& asi) {
+        asi.sync(lmtr, [&](IAsyncSteps& asi) {
+            count.fetch_add(1);
+            asi.sync(lmtr, [&](IAsyncSteps& asi) {
+                max.store(std::max(max, count));
+                count.fetch_sub(1);
+            });
+        });
+    };
+
+    as1.add(f);
+    as2.add(f);
+    as3.add(f);
+    as4.add(f);
+
+    //---
+    std::atomic_size_t done{0};
+
+    auto df = [&](IAsyncSteps& asi) { done.fetch_add(1); };
+
+    as1.add(df);
+    as2.add(df);
+    as3.add(df);
+    as4.add(df);
+
+    //---
+    as1.execute();
+    as2.execute();
+    as3.execute();
+    as4.execute();
+
+    while (at.iterate().have_work && (done.load() != 4)) {
+    }
+
+    BOOST_CHECK_EQUAL(max, 2);
+    BOOST_CHECK_EQUAL(count, 0);
+}
+
+BOOST_AUTO_TEST_SUITE_END() // NOLINT
+
+//=============================================================================
+
+BOOST_AUTO_TEST_SUITE(spi) // NOLINT
+
+BOOST_AUTO_TEST_SUITE_END() // NOLINT
+
+//=============================================================================
+
 BOOST_AUTO_TEST_SUITE_END() // NOLINT

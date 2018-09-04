@@ -28,6 +28,9 @@
 
 namespace futoin {
     namespace ri {
+        /**
+         * @brief Base implementation of FTN12 Throttle for AsyncSteps
+         */
         template<typename OSMutex>
         class BaseThrottle : public ISync
         {
