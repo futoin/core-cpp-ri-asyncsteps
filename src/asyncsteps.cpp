@@ -133,8 +133,8 @@ namespace futoin {
 
         class BaseAsyncSteps::ProtectorData : public IAsyncSteps
         {
-            friend BaseAsyncSteps;
-            friend BaseAsyncSteps::Impl;
+            friend class BaseAsyncSteps;
+            friend struct BaseAsyncSteps::Impl;
 
         public:
             ProtectorData(
@@ -490,7 +490,7 @@ namespace futoin {
         class BaseAsyncSteps::ParallelStep final
             : public BaseAsyncSteps::Protector
         {
-            friend BaseAsyncSteps;
+            friend class BaseAsyncSteps;
 
         public:
             ParallelStep(BaseAsyncSteps& root, ProtectorData* parent) noexcept :
