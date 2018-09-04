@@ -33,7 +33,7 @@ namespace futoin {
         class BaseMutex final : public ISync
         {
         public:
-            using size_type = std::uint16_t;
+            using size_type = std::uint32_t;
 
         private:
             struct ASInfo

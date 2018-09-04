@@ -1320,14 +1320,14 @@ BOOST_AUTO_TEST_CASE(plain_outer_loop) // NOLINT
     volatile size_t count = 0;
 
     asi.loop([&](IAsyncSteps& asi) { ++count; });
-    asi.execute();
 
     std::promise<void> done;
-    at.deferred(TEST_DELAY, [&]() {
+    at.deferred(std::chrono::milliseconds(1000), [&]() {
         asi.cancel();
         done.set_value();
     });
 
+    asi.execute();
     done.get_future().wait();
 
     std::cout << "Plain outer iteration count: " << count << std::endl;
@@ -1344,14 +1344,14 @@ BOOST_AUTO_TEST_CASE(plain_inner_loop) // NOLINT
     asi.add([&](IAsyncSteps& asi) {
         asi.loop([&](IAsyncSteps& asi) { ++count; });
     });
-    asi.execute();
 
     std::promise<void> done;
-    at.deferred(TEST_DELAY, [&]() {
+    at.deferred(std::chrono::milliseconds(1000), [&]() {
         asi.cancel();
         done.set_value();
     });
 
+    asi.execute();
     done.get_future().wait();
 
     std::cout << "Plain inner iteration count: " << count << std::endl;
@@ -1371,14 +1371,14 @@ BOOST_AUTO_TEST_CASE(parallel_outer_loop) // NOLINT
         p.add([&](IAsyncSteps& asi) { ++count; });
         p.add([&](IAsyncSteps& asi) { ++count; });
     });
-    asi.execute();
 
     std::promise<void> done;
-    at.deferred(TEST_DELAY, [&]() {
+    at.deferred(std::chrono::milliseconds(1000), [&]() {
         asi.cancel();
         done.set_value();
     });
 
+    asi.execute();
     done.get_future().wait();
 
     std::cout << "Plain inner parallel iteration count: " << count << std::endl;

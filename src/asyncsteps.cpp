@@ -57,6 +57,11 @@ namespace futoin {
             SubAsyncSteps(State& state, IAsyncTool& async_tool) noexcept :
                 BaseAsyncSteps(state, async_tool)
             {}
+
+            ~SubAsyncSteps() noexcept override
+            {
+                BaseAsyncSteps::cancel();
+            }
         };
 
         //---
@@ -695,9 +700,13 @@ namespace futoin {
 
         BaseAsyncSteps::~BaseAsyncSteps() noexcept
         {
-            BaseAsyncSteps::cancel();
+            // NOTE: It must be called in the most derived class
+            // to workaround State destroy in execution.
+            // BaseAsyncSteps::cancel();
 
             if (impl_ != nullptr) {
+                assert(impl_->queue_.empty());
+
                 impl_->~Impl();
                 IMemPool::Allocator<Impl>(impl_->mem_pool_)
                         .deallocate(impl_, 1);
@@ -1060,6 +1069,11 @@ namespace futoin {
             BaseAsyncSteps(state_, at),
             state_(at.mem_pool())
         {}
+
+        AsyncSteps::~AsyncSteps() noexcept
+        {
+            BaseAsyncSteps::cancel();
+        }
 
         struct BaseAsyncSteps::AllocOptimizer
         {

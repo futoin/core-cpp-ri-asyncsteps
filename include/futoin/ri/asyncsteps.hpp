@@ -86,12 +86,12 @@ namespace futoin {
         {
         public:
             AsyncSteps(IAsyncTool&) noexcept;
+            ~AsyncSteps() noexcept override;
 
             AsyncSteps(const AsyncSteps&) = delete;
             AsyncSteps& operator=(const AsyncSteps&) = delete;
             AsyncSteps(AsyncSteps&&) = default;
             AsyncSteps& operator=(AsyncSteps&&) = default;
-            ~AsyncSteps() noexcept override = default;
 
         private:
             asyncsteps::State state_;

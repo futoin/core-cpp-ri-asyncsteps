@@ -35,7 +35,7 @@ namespace futoin {
         class BaseThrottle : public ISync
         {
         public:
-            using size_type = std::uint16_t;
+            using size_type = std::uint32_t;
             using milliseconds = std::chrono::milliseconds;
 
         private:
@@ -100,8 +100,8 @@ namespace futoin {
 
                 std::lock_guard<OSMutex> lock(mutex_);
                 free_list_.splice(free_list_.end(), queue_, iter);
-                asi_iter(**iter) = std::move(queue_.end()); // clear
                 *iter = nullptr;
+                iter = std::move(queue_.end()); // clear
             }
 
             void reset()

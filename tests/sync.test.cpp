@@ -652,6 +652,146 @@ BOOST_AUTO_TEST_SUITE_END() // NOLINT
 
 BOOST_AUTO_TEST_SUITE(spi) // NOLINT
 
+BOOST_AUTO_TEST_CASE(mutex_performance) // NOLINT
+{
+    struct
+    {
+        ri::AsyncTool at;
+        ri::ThreadlessMutex mtx;
+        ri::AsyncSteps as1{at};
+        ri::AsyncSteps as2{at};
+        ri::AsyncSteps as3{at};
+        std::size_t count{0};
+    } refs;
+
+    auto f = [&](IAsyncSteps& asi) {
+        asi.sync(refs.mtx, [&](IAsyncSteps& asi) { ++(refs.count); });
+    };
+
+    refs.at.immediate([&]() {
+        refs.as1.loop(f);
+        refs.as2.loop(f);
+        refs.as3.loop(f);
+
+        refs.as1.execute();
+        refs.as2.execute();
+        refs.as3.execute();
+    });
+
+    std::promise<void> done;
+    refs.at.deferred(std::chrono::milliseconds{1000}, [&]() {
+        // TODO: fix race on d-tor/cancel
+        refs.as1.cancel();
+        refs.as2.cancel();
+        refs.as3.cancel();
+
+        done.set_value();
+    });
+    done.get_future().wait();
+
+    std::cout << "Mutex count: " << refs.count << std::endl;
+    BOOST_CHECK_GT(refs.count, 1e5);
+}
+
+BOOST_AUTO_TEST_CASE(throttle_performance) // NOLINT
+{
+    struct
+    {
+        ri::AsyncTool at;
+        ri::ThreadlessThrottle thr{
+                at,
+                std::numeric_limits<ri::ThreadlessThrottle::size_type>::max()};
+        ri::AsyncSteps as1{at};
+        std::size_t count{0};
+    } refs;
+
+    auto f = [&](IAsyncSteps& asi) {
+        asi.sync(refs.thr, [&](IAsyncSteps& asi) { ++(refs.count); });
+    };
+
+    refs.at.immediate([&]() {
+        refs.as1.loop(f);
+        refs.as1.execute();
+    });
+
+    std::promise<void> done;
+    refs.at.deferred(std::chrono::milliseconds{1000}, [&]() {
+        // TODO: fix race on d-tor/cancel
+        refs.as1.cancel();
+
+        done.set_value();
+    });
+    done.get_future().wait();
+
+    std::cout << "Throttle count: " << refs.count << std::endl;
+    BOOST_CHECK_GT(refs.count, 1e4);
+}
+
+BOOST_AUTO_TEST_CASE(stress) // NOLINT
+{
+    struct TestLimiterParams : ri::ThreadlessLimiter::Params
+    {
+        TestLimiterParams()
+        {
+            concurrent = 100;
+            max_queue = 850;
+            rate = 10000;
+            period = std::chrono::milliseconds{150};
+            burst = 3000;
+        }
+    };
+
+    struct
+    {
+        ri::AsyncTool at;
+        ri::ThreadlessLimiter thr{at, TestLimiterParams()};
+        std::list<ri::AsyncSteps> steps;
+        std::size_t count{0};
+        std::size_t limit_count{0};
+        std::promise<void> done;
+    } refs;
+
+    auto f = [&](IAsyncSteps& asi) {
+        asi.add(
+                [&](IAsyncSteps& asi) {
+                    asi.sync(refs.thr, [&](IAsyncSteps& asi) {
+                        asi.sync(refs.thr, [&](IAsyncSteps& asi) {
+                            ++(refs.count);
+                        });
+                    });
+                },
+                [&](IAsyncSteps& asi, ErrorCode code) {
+                    if (code == futoin::errors::DefenseRejected) {
+                        ++(refs.limit_count);
+                        asi();
+                    }
+                });
+    };
+
+    refs.at.immediate([&]() {
+        for (size_t i = 1000; i > 0; --i) {
+            refs.steps.emplace_back(refs.at);
+            auto& asi = refs.steps.back();
+            asi.loop(f);
+            asi.execute();
+        }
+
+        refs.at.deferred(std::chrono::milliseconds{1000}, [&]() {
+            for (auto& asi : refs.steps) {
+                asi.cancel();
+            }
+
+            refs.done.set_value();
+        });
+    });
+
+    refs.done.get_future().wait();
+
+    std::cout << "Stress count: " << refs.count << std::endl;
+    std::cout << "Limit count: " << refs.limit_count << std::endl;
+    BOOST_CHECK_GT(refs.count, 1e4);
+}
+
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
 
 //=============================================================================
