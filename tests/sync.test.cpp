@@ -367,6 +367,46 @@ BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
     BOOST_CHECK_EQUAL(count, 0);
 }
 
+BOOST_AUTO_TEST_CASE(time_stop_start) // NOLINT
+{
+    ri::AsyncTool at{[]() {}};
+
+    ri::Throttle::milliseconds delay{150};
+
+    ri::Throttle thr(at, 2, delay);
+
+    ri::AsyncSteps as{at};
+
+    std::atomic_size_t count{0};
+
+    auto f = [&](IAsyncSteps& asi, size_t i) {
+        asi.sync(thr, [&](IAsyncSteps& asi) { count.fetch_add(1); });
+    };
+
+    as.repeat(3, f);
+    at.deferred(delay * 4 / 5, [&]() { BOOST_CHECK_EQUAL(count, 2); });
+    at.deferred(delay * 3 / 2, [&]() { BOOST_CHECK_EQUAL(count, 3); });
+
+    as.execute();
+
+    while (at.iterate().have_work) {
+    }
+
+    auto f2 = [&]() {
+        as.repeat(3, f);
+        at.deferred(delay * 4 / 5, [&]() { BOOST_CHECK_EQUAL(count, 5); });
+        at.deferred(delay * 3 / 2, [&]() { BOOST_CHECK_EQUAL(count, 6); });
+        as.execute();
+    };
+
+    at.deferred(delay * 3, [&]() { f2(); });
+
+    while (at.iterate().have_work) {
+    }
+
+    BOOST_CHECK_EQUAL(count, 6);
+}
+
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
 
 //=============================================================================

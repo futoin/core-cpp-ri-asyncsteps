@@ -76,6 +76,12 @@ namespace futoin {
 
                 if (queue_.empty() && (count_ < max_)) {
                     ++count_;
+
+                    if (!timer_) {
+                        last_reset_ = clock::now();
+                        timer_ = async_tool_.deferred(
+                                period_, std::ref(reset_callback_));
+                    }
                 } else if (queue_.size() < queue_max_) {
                     if (free_list_.empty()) {
                         free_list_.emplace_back();
@@ -158,6 +164,8 @@ namespace futoin {
 
                 if (count_ > 0) {
                     free_list_.splice(free_list_.end(), queue_, begin, iter);
+                } else {
+                    timer_.cancel();
                 }
             }
 
