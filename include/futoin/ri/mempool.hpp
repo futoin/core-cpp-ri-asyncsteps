@@ -37,14 +37,29 @@ namespace futoin {
         public:
             BoostMemPool(IMemPool& root, size_t requested_size) noexcept :
                 root(root),
-                pool(requested_size)
+                pool(requested_size, 16 * 1024 / requested_size)
             {}
 
-            void* allocate(
-                    size_t /*object_size*/, size_t count) noexcept override
+            void* allocate(size_t object_size, size_t count) noexcept override
             {
+                if (count != 1) {
+                    std::cout
+                            << "FATAL: optimized allocator was used for arrays "
+                               "object_size="
+                            << object_size << std::endl;
+                    std::terminate();
+                }
+
+                if (object_size != pool.get_requested_size()) {
+                    std::cout << "FATAL: invalid optimized allocator use"
+                              << " object_size=" << object_size
+                              << " pool_size=" << pool.get_requested_size()
+                              << std::endl;
+                    std::terminate();
+                }
+
                 std::lock_guard<Mutex> lock(mutex);
-                return pool.ordered_malloc(count);
+                return pool.malloc();
             }
 
             void deallocate(
@@ -53,7 +68,7 @@ namespace futoin {
                     size_t count) noexcept override
             {
                 std::lock_guard<Mutex> lock(mutex);
-                pool.ordered_free(ptr, count);
+                pool.free(ptr, count);
             }
 
             void release_memory() noexcept override
@@ -135,8 +150,9 @@ namespace futoin {
                     size_t object_size, bool optimize = false) noexcept override
             {
                 if (optimize) {
-                    auto key = (object_size + sizeof(ptrdiff_t) - 1)
-                               / sizeof(ptrdiff_t);
+                    size_t aligned_size = (object_size + sizeof(ptrdiff_t) - 1)
+                                          / sizeof(ptrdiff_t);
+                    auto key = aligned_size - 1;
 
                     if (key < pools.size()) {
                         auto p = pools[key];
@@ -146,27 +162,29 @@ namespace futoin {
                             p = pools[key];
 
                             if (p == nullptr) {
-                                p = new BoostMemPool<Mutex>(
-                                        *this, key * sizeof(ptrdiff_t));
+                                auto pool_size =
+                                        aligned_size * sizeof(ptrdiff_t);
+
+                                p = new BoostMemPool<Mutex>(*this, pool_size);
                                 pools[key] = p;
-                            } else {
-                                std::cout << "FATAL: unable to optimize "
-                                             "object_size="
-                                          << object_size << std::endl;
-                                std::terminate();
                             }
                         }
 
                         return *p;
                     }
+
+                    std::cout << "FATAL: unable to optimize "
+                                 "object_size="
+                              << object_size << std::endl;
+                    std::terminate();
                 }
 
                 return default_pool;
             }
 
         private:
-            // 64x8
-            static constexpr size_t MAX_OBJECT_SIZE_IN_POINTERS = 64;
+            // MAX_OBJECT_SIZE_IN_POINTERS x ptrdiff_t
+            static constexpr size_t MAX_OBJECT_SIZE_IN_POINTERS = 128;
             std::array<IMemPool*, MAX_OBJECT_SIZE_IN_POINTERS> pools{nullptr};
             Mutex mutex;
             PassthroughMemPool default_pool{*this};

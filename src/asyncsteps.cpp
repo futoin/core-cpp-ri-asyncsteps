@@ -22,8 +22,8 @@
 #include <deque>
 #include <future>
 #include <iostream>
+#include <list>
 #include <memory>
-#include <stack>
 
 namespace futoin {
     namespace ri {
@@ -107,7 +107,7 @@ namespace futoin {
             // Parallel step stuff
             //--------------------
             using ParallelItems = std::
-                    deque<SubAsyncSteps, IMemPool::Allocator<SubAsyncSteps>>;
+                    list<SubAsyncSteps, IMemPool::Allocator<SubAsyncSteps>>;
             ParallelItems items_;
             std::size_t completed_{0};
             futoin::string error_code_;
@@ -1025,8 +1025,11 @@ namespace futoin {
         {
             IMemPool::Allocator<futoin::any>::EnsureOptimized any;
             IMemPool::Allocator<BaseAsyncSteps::Impl>::EnsureOptimized impl;
+            // IMemPool::Allocator<BaseAsyncSteps::Impl::ProtectorDataHolder>::EnsureOptimized
+            // protector_data;
             IMemPool::Allocator<BaseAsyncSteps::ExtStepState>::EnsureOptimized
                     ext_state;
+            IMemPool::Allocator<SubAsyncSteps>::EnsureOptimized sub_steps;
         };
         BaseAsyncSteps::AllocOptimizer BaseAsyncSteps::alloc_optimizer;
     } // namespace ri
