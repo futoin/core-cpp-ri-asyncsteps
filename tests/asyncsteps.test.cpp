@@ -1385,6 +1385,40 @@ BOOST_AUTO_TEST_CASE(parallel_outer_loop) // NOLINT
     BOOST_CHECK_GT(count, 1e4);
 }
 
+BOOST_AUTO_TEST_CASE(double_outer_loop) // NOLINT
+{
+    struct
+    {
+        ri::AsyncTool at1;
+        ri::AsyncTool at2;
+        ri::AsyncSteps as1{at1};
+        ri::AsyncSteps as2{at2};
+    } refs;
+
+    volatile size_t count1 = 0;
+    volatile size_t count2 = 0;
+
+    refs.as1.loop([&](IAsyncSteps& asi) { ++count1; });
+    refs.as2.loop([&](IAsyncSteps& asi) { ++count2; });
+
+    std::promise<void> done;
+    refs.at1.deferred(std::chrono::milliseconds(1000), [&]() {
+        refs.as1.cancel();
+        refs.as2.cancel();
+        done.set_value();
+    });
+
+    refs.as1.execute();
+    refs.as2.execute();
+    done.get_future().wait();
+
+    auto total = count1 + count2;
+    std::cout << "Double outer iteration 1: " << count1 << std::endl;
+    std::cout << "Double outer iteration 2: " << count2 << std::endl;
+    std::cout << "Double outer iteration total: " << total << std::endl;
+    BOOST_CHECK_GT(total, 1e4);
+}
+
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
 
 //=============================================================================

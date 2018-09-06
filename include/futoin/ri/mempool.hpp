@@ -22,6 +22,8 @@
 //---
 #include <array>
 #include <boost/pool/pool.hpp>
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <mutex>
 //---
@@ -111,6 +113,13 @@ namespace futoin {
         class MemPoolManager final : public IMemPool
         {
         public:
+            MemPoolManager() noexcept
+            {
+                auto res = std::getenv("FUTOIN_USE_MEMPOOL");
+                allow_optimize_ =
+                        ((res == nullptr) || (std::strcmp(res, "true") == 0));
+            }
+
             ~MemPoolManager() noexcept override
             {
                 for (auto& p : pools) {
@@ -149,7 +158,7 @@ namespace futoin {
             IMemPool& mem_pool(
                     size_t object_size, bool optimize = false) noexcept override
             {
-                if (optimize) {
+                if (optimize && allow_optimize_) {
                     size_t aligned_size = (object_size + sizeof(ptrdiff_t) - 1)
                                           / sizeof(ptrdiff_t);
                     auto key = aligned_size - 1;
@@ -188,6 +197,7 @@ namespace futoin {
             std::array<IMemPool*, MAX_OBJECT_SIZE_IN_POINTERS> pools{nullptr};
             Mutex mutex;
             PassthroughMemPool default_pool{*this};
+            bool allow_optimize_;
         };
     } // namespace ri
 } // namespace futoin
