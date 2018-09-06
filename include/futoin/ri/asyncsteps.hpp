@@ -58,6 +58,7 @@ namespace futoin {
             operator bool() const noexcept override;
             std::unique_ptr<IAsyncSteps> newInstance() noexcept override;
             SyncRootID sync_root_id() const override;
+            StepData& add_sync(ISync& /*obj*/) noexcept override;
             void await_impl(AwaitPass /*awp*/) noexcept override;
             asyncsteps::State& state() noexcept override;
 

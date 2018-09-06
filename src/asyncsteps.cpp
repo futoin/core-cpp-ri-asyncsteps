@@ -116,6 +116,11 @@ namespace futoin {
             //--------------------
             // AwaitPass::Storage await_storage_;
             asyncsteps::AwaitCallback await_func_;
+
+            // Sync step stuff
+            //--------------------
+            ISync* sync_object{nullptr};
+            StepData sync_data_;
         };
 
         class BaseAsyncSteps::ProtectorData : public IAsyncSteps
@@ -407,6 +412,57 @@ namespace futoin {
                     this->error(errors::Timeout);
                 } catch (...) {
                 }
+            }
+
+            StepData& add_sync(ISync& obj) noexcept override
+            {
+                sanity_check();
+
+                auto buf = root_->impl_->alloc_step();
+                auto step = new (buf) Protector(*root_, this);
+
+                step->data_.func_ = &Protector::sync_handler;
+
+                auto& ext = step->alloc_ext_data(false);
+                ext.sync_object = &obj;
+                return ext.sync_data_;
+            }
+
+            static void sync_handler(IAsyncSteps& asi)
+            {
+                auto& that = static_cast<Protector&>(asi);
+                auto& sync_data = that.ext_data_->sync_data_;
+
+                asi.setCancel(&Protector::sync_cancel_handler);
+
+                asi.add(&Protector::sync_lock_handler);
+
+                auto& data = that.add_step();
+                data.func_ = std::move(sync_data.func_);
+                data.on_error_ = std::move(sync_data.on_error_);
+
+                asi.add(&Protector::sync_unlock_handler);
+            }
+
+            static void sync_cancel_handler(IAsyncSteps& asi)
+            {
+                auto& that = static_cast<Protector&>(asi);
+                auto sync_object = that.ext_data_->sync_object;
+                sync_object->unlock(asi);
+            }
+
+            static void sync_lock_handler(IAsyncSteps& asi)
+            {
+                auto& that = static_cast<Protector&>(asi);
+                auto sync_object = that.parent_->ext_data_->sync_object;
+                sync_object->lock(asi);
+            }
+
+            static void sync_unlock_handler(IAsyncSteps& asi)
+            {
+                auto& that = static_cast<Protector&>(asi);
+                auto sync_object = that.parent_->ext_data_->sync_object;
+                sync_object->unlock(asi);
             }
 
             void await_impl(AwaitPass awp) noexcept override
@@ -990,6 +1046,20 @@ namespace futoin {
         IAsyncSteps::SyncRootID BaseAsyncSteps::sync_root_id() const
         {
             return reinterpret_cast<SyncRootID>(this);
+        }
+
+        IAsyncSteps::StepData& BaseAsyncSteps::add_sync(ISync& obj) noexcept
+        {
+            impl_->sanity_check();
+
+            auto buf = impl_->alloc_step();
+            auto step = new (buf) Protector(*this, nullptr);
+
+            step->data_.func_ = &Protector::sync_handler;
+
+            auto& ext = step->alloc_ext_data(false);
+            ext.sync_object = &obj;
+            return ext.sync_data_;
         }
 
         void BaseAsyncSteps::await_impl(AwaitPass awp) noexcept
