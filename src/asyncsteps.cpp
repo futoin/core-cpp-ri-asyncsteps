@@ -534,7 +534,14 @@ namespace futoin {
 
                 // actual step
                 auto sub_impl = sub_asi.impl_;
-                sub_impl->alloc_step(); // completion step
+
+                // completion step
+                //---
+                auto final_data = sub_impl->alloc_step();
+                new (final_data) Protector(sub_asi, nullptr);
+
+                // Inner step
+                //---
                 auto data = sub_impl->alloc_step();
                 auto& sub_asi_p = reinterpret_cast<ProtectorData&>(
                         sub_asi.impl_->queue_.front());
@@ -633,10 +640,9 @@ namespace futoin {
 
                 for (auto& v : that.ext_data_->items_) {
                     // NOTE: See add_substep() for pre-allocation
-                    auto& holder = reinterpret_cast<Impl::ProtectorDataHolder&>(
-                            v.impl_->queue_[1]);
-                    auto step = new (&holder) Protector(v, nullptr);
-                    auto& d = step->data_;
+                    auto& step =
+                            reinterpret_cast<Protector&>(v.impl_->queue_[1]);
+                    auto& d = step.data_;
                     completion_handler.move(d.func_, d.func_storage_);
                     v.impl_->schedule_exec();
                 }
