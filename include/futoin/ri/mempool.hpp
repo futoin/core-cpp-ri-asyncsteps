@@ -44,14 +44,6 @@ namespace futoin {
 
             void* allocate(size_t object_size, size_t count) noexcept override
             {
-                if (count != 1) {
-                    std::cout
-                            << "FATAL: optimized allocator was used for arrays "
-                               "object_size="
-                            << object_size << std::endl;
-                    std::terminate();
-                }
-
                 if (object_size != pool.get_requested_size()) {
                     std::cout << "FATAL: invalid optimized allocator use"
                               << " object_size=" << object_size
@@ -61,7 +53,7 @@ namespace futoin {
                 }
 
                 std::lock_guard<Mutex> lock(mutex);
-                return pool.malloc();
+                return pool.ordered_malloc(count);
             }
 
             void deallocate(
@@ -70,7 +62,7 @@ namespace futoin {
                     size_t count) noexcept override
             {
                 std::lock_guard<Mutex> lock(mutex);
-                pool.free(ptr, count);
+                pool.ordered_free(ptr, count);
             }
 
             void release_memory() noexcept override
