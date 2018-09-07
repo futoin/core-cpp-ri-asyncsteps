@@ -1,11 +1,11 @@
 {
   "name": "futoin/core-cpp-ri-asyncsteps",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "vcs": "git",
   "plugins": {
     "release": "futoin.cid.misc.releasetool"
   },
   "actions": {
-    "check" : "@cid tool exec make -- -C build/ test"
+    "check": "@cid tool exec make -- -C build/ test"
   }
 }
