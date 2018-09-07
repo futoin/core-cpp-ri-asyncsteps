@@ -1101,8 +1101,8 @@ namespace futoin {
         {
             IMemPool::Allocator<futoin::any>::EnsureOptimized any;
             IMemPool::Allocator<BaseAsyncSteps::Impl>::EnsureOptimized impl;
-            IMemPool::Allocator<BaseAsyncSteps::Impl::ProtectorDataHolder>::EnsureOptimized
-                protector_data;
+            IMemPool::Allocator<BaseAsyncSteps::Impl::ProtectorDataHolder>::
+                    EnsureOptimized protector_data;
             IMemPool::Allocator<BaseAsyncSteps::ExtStepState>::EnsureOptimized
                     ext_state;
             IMemPool::Allocator<SubAsyncSteps>::EnsureOptimized sub_steps;
