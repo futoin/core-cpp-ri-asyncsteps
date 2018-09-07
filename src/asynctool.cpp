@@ -15,6 +15,7 @@
 //   limitations under the License.
 //-----------------------------------------------------------------------------
 
+#include <futoin/ri/asyncsteps.hpp>
 #include <futoin/ri/asynctool.hpp>
 #include <futoin/ri/mempool.hpp>
 
@@ -249,7 +250,14 @@ namespace futoin {
 
             using HandleTask = Callback;
 
-            Impl() : is_shutdown(false) {}
+            Impl(const Params& params) : params(params), is_shutdown(false)
+            {
+                if (params.mempool_mutex) {
+                    mem_pool.reset(new MemPoolManager<std::mutex>);
+                } else {
+                    mem_pool.reset(new MemPoolManager<ISync::NoopOSMutex>);
+                }
+            }
 
             ~Impl() noexcept
             {
@@ -322,6 +330,7 @@ namespace futoin {
                     optimized_list<UniversalHandle>::allocator;
             using UniversalHeap = optimized_list<UniversalHandle>;
 
+            Params params;
             HandleCookie current_cookie{1};
 
             UniversalAllocator handle_allocator_;
@@ -352,11 +361,11 @@ namespace futoin {
             PokeCallback poke_cb;
             std::thread::id reactor_thread_id;
             std::unique_ptr<std::thread> thread;
-
-            MemPoolManager<> mem_pool;
+            std::unique_ptr<IMemPool> mem_pool;
         };
 
-        AsyncTool::AsyncTool() noexcept : impl_(new Impl)
+        AsyncTool::AsyncTool(const Params& params) noexcept :
+            impl_(new Impl(params))
         {
             auto& poke_var = impl_->poke_var;
             impl_->poke_cb = [&]() { poke_var.notify_one(); };
@@ -365,8 +374,9 @@ namespace futoin {
             impl_->reactor_thread_id = impl_->thread->get_id();
         }
 
-        AsyncTool::AsyncTool(PokeCallback poke_external) noexcept :
-            impl_(new Impl)
+        AsyncTool::AsyncTool(
+                PokeCallback poke_external, const Params& params) noexcept :
+            impl_(new Impl(params))
         {
             impl_->poke_cb = std::move(poke_external);
             impl_->reactor_thread_id = std::this_thread::get_id();
@@ -468,7 +478,7 @@ namespace futoin {
 
         void AsyncTool::Impl::process() noexcept
         {
-            GlobalMemPool::set_thread_default(mem_pool);
+            GlobalMemPool::set_thread_default(*mem_pool);
 
             while (!is_shutdown.load(std::memory_order_relaxed)) {
                 iterate();
@@ -666,7 +676,7 @@ namespace futoin {
             if (is_same_thread()) {
                 impl_->universal_free_heep.clear();
                 impl_->handle_allocator_.release_memory();
-                impl_->mem_pool.release_memory();
+                impl_->mem_pool->release_memory();
             } else {
                 std::promise<void> res;
                 auto func = [this, &res]() {
@@ -683,7 +693,7 @@ namespace futoin {
         IMemPool& AsyncTool::mem_pool(
                 size_t object_size, bool optimize) noexcept
         {
-            return impl_->mem_pool.mem_pool(object_size, optimize);
+            return impl_->mem_pool->mem_pool(object_size, optimize);
         }
     } // namespace ri
 } // namespace futoin

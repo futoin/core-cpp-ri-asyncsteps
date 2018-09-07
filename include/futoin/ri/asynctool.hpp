@@ -36,14 +36,29 @@ namespace futoin {
             using PokeCallback = std::function<void()>;
 
             /**
+             * @brief Parameters for AsyncTool
+             */
+            struct Params
+            {
+                Params() noexcept : mempool_mutex(true) {}
+                Params(const Params&) noexcept = default;
+
+                // There is some GCC/CC+11 bug
+                // NOLINTNEXTLINE(modernize-use-default-member-init)
+                bool mempool_mutex;
+            };
+
+            /**
              * @brief Initialize with internal thread loop
              */
-            AsyncTool() noexcept;
+            AsyncTool(const Params& params = {}) noexcept;
 
             /**
              * @brief Initialize for external thread loop
              */
-            AsyncTool(PokeCallback poke_external) noexcept;
+            AsyncTool(
+                    PokeCallback poke_external,
+                    const Params& params = {}) noexcept;
 
             ~AsyncTool() noexcept override;
             AsyncTool(const AsyncTool&) = delete;

@@ -20,6 +20,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <future>
+#include <thread>
 //---
 #include <futoin/ri/asyncsteps.hpp>
 #include <futoin/ri/asynctool.hpp>
@@ -1416,6 +1417,42 @@ BOOST_AUTO_TEST_CASE(double_outer_loop) // NOLINT
     std::cout << "Double outer iteration 1: " << count1 << std::endl;
     std::cout << "Double outer iteration 2: " << count2 << std::endl;
     std::cout << "Double outer iteration total: " << total << std::endl;
+    BOOST_CHECK_GT(total, 1e4);
+}
+
+BOOST_AUTO_TEST_CASE(double_outer_loop_nomutex) // NOLINT
+{
+    auto f = [](size_t& count) {
+        ri::AsyncTool::Params prm;
+        prm.mempool_mutex = false;
+        ri::AsyncTool at{prm};
+        ri::AsyncSteps asi{at};
+
+        std::promise<void> done;
+        at.deferred(std::chrono::milliseconds(1000), [&]() {
+            asi.cancel();
+            done.set_value();
+        });
+
+        asi.loop([&](IAsyncSteps&) { ++count; });
+        asi.execute();
+
+        done.get_future().wait();
+    };
+
+    size_t count1 = 0;
+    size_t count2 = 0;
+
+    std::thread thread1{f, std::ref(count1)};
+    std::thread thread2{f, std::ref(count2)};
+
+    thread1.join();
+    thread2.join();
+
+    auto total = count1 + count2;
+    std::cout << "Double outer iteration nomutex 1: " << count1 << std::endl;
+    std::cout << "Double outer iteration nomutex 2: " << count2 << std::endl;
+    std::cout << "Double outer iteration nomutex total: " << total << std::endl;
     BOOST_CHECK_GT(total, 1e4);
 }
 
