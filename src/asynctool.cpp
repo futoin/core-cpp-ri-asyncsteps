@@ -35,7 +35,7 @@
 
 namespace futoin {
     namespace ri {
-        using std::chrono::steady_clock;
+        using clock_type = std::chrono::steady_clock;
         using lock_guard = std::lock_guard<std::mutex>;
 
         constexpr size_t AsyncTool::BURST_COUNT;
@@ -236,7 +236,7 @@ namespace futoin {
                 ~UniversalHandle() noexcept = default;
 
                 HandleCookie cookie{0};
-                steady_clock::time_point when;
+                clock_type::time_point when;
             };
 
             template<typename T>
@@ -445,7 +445,7 @@ namespace futoin {
                 std::terminate();
             }
 
-            auto when = steady_clock::now() + delay;
+            auto when = clock_type::now() + delay;
 
             auto& free_heap = impl_->universal_free_heep;
             auto& used_heap = impl_->defer_used_heap;
@@ -523,8 +523,8 @@ namespace futoin {
                     return {false, milliseconds(0)};
                 }
 
-                auto delay = impl_->defer_queue.top()->when
-                             - steady_clock::now() + milliseconds(1);
+                auto delay = impl_->defer_queue.top()->when - clock_type::now()
+                             + milliseconds(1);
                 return {true, std::chrono::duration_cast<milliseconds>(delay)};
             }
 
@@ -558,51 +558,54 @@ namespace futoin {
                         iter);
             }
 
-            const auto now = steady_clock::now();
+            if (!defer_queue.empty()) {
+                const auto now = clock_type::now();
 
-            // NOTE: it's assumed deferred calls are almost always canceled, but
-            // not executed!
-            for (size_t i = BURST_COUNT; (i > 0) && !defer_queue.empty(); --i) {
-                iter = defer_queue.top();
+                // NOTE: it's assumed deferred calls are almost always canceled,
+                // but not executed!
+                for (size_t i = BURST_COUNT; (i > 0) && !defer_queue.empty();
+                     --i) {
+                    iter = defer_queue.top();
 
-                auto& h = *iter;
-                auto& cookie = h.cookie;
+                    auto& h = *iter;
+                    auto& cookie = h.cookie;
 
-                if (cookie != 0) {
-                    if (h.when > now) {
-                        break;
-                    }
+                    if (cookie != 0) {
+                        if (h.when > now) {
+                            break;
+                        }
 
-                    cookie = 0;
-                    h.callback();
-                } else {
-                    --canceled_handles;
-                }
-
-                universal_free_heep.splice(
-                        universal_free_heep.begin(), defer_used_heap, iter);
-                defer_queue.pop();
-            }
-
-            // TODO: redesign
-            if (canceled_handles > (defer_used_heap.size() / 2)) {
-                auto iter = defer_used_heap.begin();
-                const auto end = defer_used_heap.end();
-
-                defer_queue = DeferredPriorityQueue();
-
-                while (iter != end) {
-                    if (iter->cookie != 0) {
-                        defer_queue.push(iter);
-                        ++iter;
+                        cookie = 0;
+                        h.callback();
                     } else {
                         --canceled_handles;
-                        auto to_move = iter;
-                        ++iter;
-                        universal_free_heep.splice(
-                                universal_free_heep.begin(),
-                                defer_used_heap,
-                                to_move);
+                    }
+
+                    universal_free_heep.splice(
+                            universal_free_heep.begin(), defer_used_heap, iter);
+                    defer_queue.pop();
+                }
+
+                // TODO: redesign
+                if (canceled_handles > (defer_used_heap.size() / 2)) {
+                    auto iter = defer_used_heap.begin();
+                    const auto end = defer_used_heap.end();
+
+                    defer_queue = DeferredPriorityQueue();
+
+                    while (iter != end) {
+                        if (iter->cookie != 0) {
+                            defer_queue.push(iter);
+                            ++iter;
+                        } else {
+                            --canceled_handles;
+                            auto to_move = iter;
+                            ++iter;
+                            universal_free_heep.splice(
+                                    universal_free_heep.begin(),
+                                    defer_used_heap,
+                                    to_move);
+                        }
                     }
                 }
             }

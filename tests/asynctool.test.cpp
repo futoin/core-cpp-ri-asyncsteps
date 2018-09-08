@@ -387,7 +387,7 @@ struct StepEmu
     AsyncTool& at;
     AsyncTool::Handle handle;
     AsyncTool::Handle limit;
-    volatile size_t count = 0;
+    size_t count = 0;
 
     StepEmu(AsyncTool& at) : at(at) {}
 
@@ -415,6 +415,22 @@ struct StepEmu
     }
 };
 
+struct SimpleStepEmu : public StepEmu
+{
+    SimpleStepEmu(AsyncTool& at) : StepEmu(at) {}
+
+    void start()
+    {
+        (*this)();
+    }
+
+    void operator()() noexcept
+    {
+        handle = at.immediate(std::ref(*this));
+        ++count;
+    }
+};
+
 size_t measure_raw_count()
 {
     static size_t raw_count = 0;
@@ -433,7 +449,7 @@ size_t measure_raw_count()
     return raw_count;
 }
 
-BOOST_AUTO_TEST_CASE(performance) // NOLINT
+BOOST_AUTO_TEST_CASE(performance_deferred) // NOLINT
 {
     struct
     {
@@ -450,7 +466,7 @@ BOOST_AUTO_TEST_CASE(performance) // NOLINT
 
         std::cout << std::endl;
         std::cout << "Raw iterations: " << refs.raw_count << std::endl;
-        std::cout << "Step iterations: " << std::endl
+        std::cout << "Step iterations with deferred: " << std::endl
                   << " 1=" << refs.step_emu1.count << std::endl
                   << " 2=" << refs.step_emu2.count << std::endl
                   << " 3=" << refs.step_emu3.count << std::endl;
@@ -462,7 +478,7 @@ BOOST_AUTO_TEST_CASE(performance) // NOLINT
                   << " handle_task_count=" << stats.handle_task_count
                   << std::endl;
         BOOST_CHECK_LE(stats.immediate_used, 6);
-        BOOST_CHECK_LE(stats.deferred_used, 20);
+        BOOST_CHECK_LE(stats.deferred_used, AsyncTool::BURST_COUNT / 10 + 10);
         BOOST_CHECK_LE(stats.universal_free, AsyncTool::BURST_COUNT * 2);
         BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
     };
@@ -470,12 +486,6 @@ BOOST_AUTO_TEST_CASE(performance) // NOLINT
     refs.at.immediate([&]() { refs.raw_count = measure_raw_count(); });
 
     refs.at.immediate([&]() {
-        // NOTE: due to unfair std::mutex scheduling, we need to do it this way
-        //       from internal loop thread.
-        refs.step_emu1.start();
-        refs.step_emu2.start();
-        refs.step_emu3.start();
-
         refs.at.deferred(std::chrono::seconds(1), [&]() {
             print_stats();
             refs.at.mem_pool().release_memory();
@@ -488,6 +498,12 @@ BOOST_AUTO_TEST_CASE(performance) // NOLINT
             refs.step_emu3.stop();
             refs.done.set_value();
         });
+
+        // NOTE: due to unfair std::mutex scheduling, we need to do it this way
+        //       from internal loop thread.
+        refs.step_emu1.start();
+        refs.step_emu2.start();
+        refs.step_emu3.start();
     });
 
     refs.done.get_future().wait();
@@ -496,6 +512,119 @@ BOOST_AUTO_TEST_CASE(performance) // NOLINT
     BOOST_CHECK_GT(refs.step_emu1.count, ref_count);
     BOOST_CHECK_GT(refs.step_emu2.count, ref_count);
     BOOST_CHECK_GT(refs.step_emu3.count, ref_count);
+}
+
+BOOST_AUTO_TEST_CASE(performance_pure_immediates) // NOLINT
+{
+    struct
+    {
+        AsyncTool at;
+        AsyncTool at_deferred;
+        SimpleStepEmu step{at};
+        size_t raw_count{0};
+        std::promise<void> done;
+    } refs;
+
+    auto print_stats = [&]() {
+        auto stats = refs.at.stats();
+
+        std::cout << std::endl;
+        std::cout << "Raw iterations: " << refs.raw_count << std::endl;
+        std::cout << "Step iterations with immediate: " << refs.step.count
+                  << std::endl;
+
+        std::cout << "Stats: " << std::endl
+                  << " immediate_used=" << stats.immediate_used << std::endl
+                  << " deferred_used=" << stats.deferred_used << std::endl
+                  << " universal_free=" << stats.universal_free << std::endl
+                  << " handle_task_count=" << stats.handle_task_count
+                  << std::endl;
+        BOOST_CHECK_LE(stats.immediate_used, AsyncTool::BURST_COUNT + 1);
+        BOOST_CHECK_LE(stats.deferred_used, 2);
+        BOOST_CHECK_LE(stats.universal_free, AsyncTool::BURST_COUNT * 2);
+        BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
+    };
+
+    refs.at.immediate([&]() { refs.raw_count = measure_raw_count(); });
+
+    refs.at.immediate([&]() {
+        refs.at_deferred.immediate([&]() {
+            refs.at_deferred.deferred(std::chrono::seconds(1), [&]() {
+                print_stats();
+                refs.at.mem_pool().release_memory();
+            });
+
+            refs.at_deferred.deferred(std::chrono::seconds(2), [&]() {
+                refs.step.stop();
+                print_stats();
+                refs.done.set_value();
+            });
+        });
+
+        // NOTE: due to unfair std::mutex scheduling, we need to do it this way
+        //       from internal loop thread.
+        refs.step.start();
+    });
+
+    refs.done.get_future().wait();
+
+    const size_t ref_count = refs.raw_count / 150;
+    BOOST_CHECK_GT(refs.step.count, ref_count);
+}
+
+BOOST_AUTO_TEST_CASE(performance_immediates_with_defer) // NOLINT
+{
+    struct
+    {
+        AsyncTool at;
+        SimpleStepEmu step{at};
+        size_t raw_count{0};
+        std::promise<void> done;
+    } refs;
+
+    auto print_stats = [&]() {
+        auto stats = refs.at.stats();
+
+        std::cout << std::endl;
+        std::cout << "Raw iterations: " << refs.raw_count << std::endl;
+        std::cout << "Step iterations with immediate & defer queue: "
+                  << refs.step.count << std::endl;
+
+        std::cout << "Stats: " << std::endl
+                  << " immediate_used=" << stats.immediate_used << std::endl
+                  << " deferred_used=" << stats.deferred_used << std::endl
+                  << " universal_free=" << stats.universal_free << std::endl
+                  << " handle_task_count=" << stats.handle_task_count
+                  << std::endl;
+        BOOST_CHECK_LE(stats.immediate_used, AsyncTool::BURST_COUNT + 1);
+        BOOST_CHECK_LE(stats.deferred_used, 2);
+        BOOST_CHECK_LE(stats.universal_free, AsyncTool::BURST_COUNT * 2);
+        BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
+    };
+
+    refs.at.immediate([&]() { refs.raw_count = measure_raw_count(); });
+
+    refs.at.immediate([&]() {
+        refs.at.deferred(std::chrono::seconds(1), [&]() {
+            print_stats();
+            refs.at.mem_pool().release_memory();
+        });
+
+        refs.at.deferred(std::chrono::seconds(2), [&]() {
+            refs.step.stop();
+            print_stats();
+            refs.done.set_value();
+        });
+
+        // NOTE: due to unfair std::mutex scheduling, we need to do it this way
+        //       from internal loop thread.
+        refs.step.start();
+    });
+
+    refs.done.get_future().wait();
+
+    const size_t ref_count = refs.raw_count / 150;
+    BOOST_CHECK_GT(refs.step.count, ref_count);
 }
 
 BOOST_AUTO_TEST_CASE(stress) // NOLINT
@@ -534,7 +663,7 @@ BOOST_AUTO_TEST_CASE(stress) // NOLINT
                   << " handle_task_count=" << stats.handle_task_count
                   << std::endl;
 
-        BOOST_CHECK_GT(iterations, refs.raw_count / 100);
+        BOOST_CHECK_GT(iterations, refs.raw_count / 300);
         BOOST_CHECK_LE(stats.immediate_used, STEP_COUNT * 2);
         BOOST_CHECK_LE(
                 stats.deferred_used + stats.universal_free, STEP_COUNT * 3);
@@ -574,7 +703,7 @@ BOOST_AUTO_TEST_CASE(external_stress) // NOLINT
     auto measure = [&](size_t thread_count) {
         std::cout << "Running threads: " << thread_count << std::endl;
 
-        auto test_coeff = std::max<int>(1, 30 - thread_count);
+        auto test_coeff = 30 * std::max<int>(1, 50 - thread_count);
         size_t raw_count = measure_raw_count();
         std::atomic_bool run{true};
         volatile size_t call_count = 0;

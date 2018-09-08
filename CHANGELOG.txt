@@ -1,5 +1,6 @@
 === (next) ===
 CHANGED: minor revise of the public interfaces of public API implementations
+CHANGED: major boost for immediates-only processing
 
 === 1.0.0 (2018-09-07) ===
 NEW: initial release with FTN12 AsyncSteps C++ reference implementation

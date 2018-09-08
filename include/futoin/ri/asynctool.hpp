@@ -32,7 +32,7 @@ namespace futoin {
         class AsyncTool final : public IAsyncTool
         {
         public:
-            static constexpr size_t BURST_COUNT = 128U;
+            static constexpr size_t BURST_COUNT = 256U;
             using PokeCallback = std::function<void()>;
 
             /**
