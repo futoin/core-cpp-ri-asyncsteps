@@ -53,7 +53,7 @@ namespace futoin {
                 BaseAsyncSteps(state, async_tool)
             {}
 
-            ~SubAsyncSteps() noexcept override
+            ~SubAsyncSteps() noexcept final
             {
                 BaseAsyncSteps::cancel();
             }
@@ -508,7 +508,7 @@ namespace futoin {
                 on_cancel_ = &cancel_cb;
             }
 
-            ~ParallelStep() noexcept override = default;
+            ~ParallelStep() noexcept final = default;
 
             void sanity_check() noexcept
             {
@@ -549,14 +549,14 @@ namespace futoin {
                 return step;
             }
 
-            StepData& add_step() noexcept override
+            StepData& add_step() noexcept final
             {
                 sanity_check();
 
                 return add_substep()->data_;
             }
 
-            LoopState& add_loop() noexcept override
+            LoopState& add_loop() noexcept final
             {
                 sanity_check();
 
@@ -566,27 +566,27 @@ namespace futoin {
                 return step->alloc_ext_data(true);
             }
 
-            IAsyncSteps& parallel(ErrorPass /*on_error*/) noexcept override
+            IAsyncSteps& parallel(ErrorPass /*on_error*/) noexcept final
             {
                 on_invalid_call("parallel() on parallel()");
             }
 
-            NextArgs& nextargs() noexcept override
+            NextArgs& nextargs() noexcept final
             {
                 on_invalid_call("nextargs() on parallel()");
             }
 
-            void setTimeout(std::chrono::milliseconds /*to*/) noexcept override
+            void setTimeout(std::chrono::milliseconds /*to*/) noexcept final
             {
                 on_invalid_call("setTimeout() on parallel()");
             }
 
-            void setCancel(CancelPass /*cb*/) noexcept override
+            void setCancel(CancelPass /*cb*/) noexcept final
             {
                 on_invalid_call("setCancel() on parallel()");
             }
 
-            void waitExternal() noexcept override
+            void waitExternal() noexcept final
             {
                 on_invalid_call("waitExternal() on parallel()");
             }

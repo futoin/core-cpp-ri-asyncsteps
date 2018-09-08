@@ -56,7 +56,7 @@ namespace futoin {
                 this_key_(key_from_pointer(this))
             {}
 
-            void lock(IAsyncSteps& asi) override
+            void lock(IAsyncSteps& asi) final
             {
                 auto& iter = asi_iter(asi);
 
@@ -88,7 +88,7 @@ namespace futoin {
                     ++(iter->count);
                 }
             }
-            void unlock(IAsyncSteps& asi) noexcept override
+            void unlock(IAsyncSteps& asi) noexcept final
             {
                 auto& iter = asi_iter(asi);
 

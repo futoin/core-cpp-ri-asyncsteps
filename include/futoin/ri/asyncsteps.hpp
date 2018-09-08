@@ -40,33 +40,34 @@ namespace futoin {
             BaseAsyncSteps& operator=(BaseAsyncSteps&&) noexcept = default;
             ~BaseAsyncSteps() noexcept override;
 
-            StepData& add_step() noexcept override;
-            IAsyncSteps& parallel(ErrorPass on_error = {}) noexcept override;
-            void handle_success() noexcept override;
-            void handle_error(ErrorCode /*code*/) override;
+            IAsyncSteps& parallel(ErrorPass on_error = {}) noexcept final;
 
-            asyncsteps::NextArgs& nextargs() noexcept override;
-            IAsyncSteps& copyFrom(IAsyncSteps& /*asi*/) noexcept override;
+            asyncsteps::NextArgs& nextargs() noexcept final;
+            IAsyncSteps& copyFrom(IAsyncSteps& /*asi*/) noexcept final;
 
-            void setTimeout(std::chrono::milliseconds /*to*/) noexcept override;
-            void setCancel(CancelPass /*cb*/) noexcept override;
-            void waitExternal() noexcept override;
-            void execute() noexcept override;
-            void cancel() noexcept override;
+            void setTimeout(std::chrono::milliseconds /*to*/) noexcept final;
+            void setCancel(CancelPass /*cb*/) noexcept final;
+            void waitExternal() noexcept final;
+            void execute() noexcept final;
+            void cancel() noexcept final;
             using IAsyncSteps::promise;
-            asyncsteps::LoopState& add_loop() noexcept override;
-            operator bool() const noexcept override;
-            std::unique_ptr<IAsyncSteps> newInstance() noexcept override;
-            SyncRootID sync_root_id() const override;
-            StepData& add_sync(ISync& /*obj*/) noexcept override;
-            void await_impl(AwaitPass /*awp*/) noexcept override;
-            asyncsteps::State& state() noexcept override;
+            operator bool() const noexcept final;
+            std::unique_ptr<IAsyncSteps> newInstance() noexcept final;
+            SyncRootID sync_root_id() const final;
+            asyncsteps::State& state() noexcept final;
 
             using IAsyncSteps::state;
 
         protected:
             BaseAsyncSteps(
                     asyncsteps::State& state, IAsyncTool& async_tool) noexcept;
+
+            StepData& add_step() noexcept final;
+            void handle_success() noexcept final;
+            void handle_error(ErrorCode /*code*/) final;
+            asyncsteps::LoopState& add_loop() noexcept final;
+            StepData& add_sync(ISync& /*obj*/) noexcept final;
+            void await_impl(AwaitPass /*awp*/) noexcept final;
 
         private:
             struct ExtStepState;
@@ -87,7 +88,7 @@ namespace futoin {
         {
         public:
             AsyncSteps(IAsyncTool&) noexcept;
-            ~AsyncSteps() noexcept override;
+            ~AsyncSteps() noexcept final;
 
             AsyncSteps(const AsyncSteps&) = delete;
             AsyncSteps& operator=(const AsyncSteps&) = delete;

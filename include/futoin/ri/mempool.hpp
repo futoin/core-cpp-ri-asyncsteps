@@ -42,7 +42,7 @@ namespace futoin {
                 pool(requested_size, 16 * 1024 / requested_size)
             {}
 
-            void* allocate(size_t object_size, size_t count) noexcept override
+            void* allocate(size_t object_size, size_t count) noexcept final
             {
                 if (object_size != pool.get_requested_size()) {
                     std::cout << "FATAL: invalid optimized allocator use"
@@ -59,20 +59,19 @@ namespace futoin {
             void deallocate(
                     void* ptr,
                     size_t /*object_size*/,
-                    size_t count) noexcept override
+                    size_t count) noexcept final
             {
                 std::lock_guard<Mutex> lock(mutex);
                 pool.ordered_free(ptr, count);
             }
 
-            void release_memory() noexcept override
+            void release_memory() noexcept final
             {
                 std::lock_guard<Mutex> lock(mutex);
                 pool.release_memory();
             }
 
-            IMemPool& mem_pool(
-                    size_t object_size, bool optimize) noexcept override
+            IMemPool& mem_pool(size_t object_size, bool optimize) noexcept final
             {
                 return root.mem_pool(object_size, optimize);
             }
@@ -88,8 +87,7 @@ namespace futoin {
         public:
             PassthroughMemPool(IMemPool& root) noexcept : root(root) {}
 
-            IMemPool& mem_pool(
-                    size_t object_size, bool optimize) noexcept override
+            IMemPool& mem_pool(size_t object_size, bool optimize) noexcept final
             {
                 return root.mem_pool(object_size, optimize);
             }
@@ -112,7 +110,7 @@ namespace futoin {
                         ((res == nullptr) || (std::strcmp(res, "true") == 0));
             }
 
-            ~MemPoolManager() noexcept override
+            ~MemPoolManager() noexcept final
             {
                 for (auto& p : pools) {
                     if (p != nullptr) {
@@ -122,21 +120,19 @@ namespace futoin {
                 }
             }
 
-            void* allocate(size_t object_size, size_t count) noexcept override
+            void* allocate(size_t object_size, size_t count) noexcept final
             {
                 return mem_pool(object_size).allocate(object_size, count);
             }
 
             void deallocate(
-                    void* ptr,
-                    size_t object_size,
-                    size_t count) noexcept override
+                    void* ptr, size_t object_size, size_t count) noexcept final
             {
                 return mem_pool(object_size)
                         .deallocate(ptr, object_size, count);
             }
 
-            void release_memory() noexcept override
+            void release_memory() noexcept final
             {
                 std::lock_guard<Mutex> lock(mutex);
 
@@ -148,7 +144,7 @@ namespace futoin {
             }
 
             IMemPool& mem_pool(
-                    size_t object_size, bool optimize = false) noexcept override
+                    size_t object_size, bool optimize = false) noexcept final
             {
                 if (optimize && allow_optimize_) {
                     size_t aligned_size = (object_size + sizeof(ptrdiff_t) - 1)

@@ -57,12 +57,12 @@ namespace futoin {
                 throttle_(async_tool, prm.rate, prm.period, prm.burst)
             {}
 
-            void lock(IAsyncSteps& asi) override
+            void lock(IAsyncSteps& asi) final
             {
                 asi.add([this](IAsyncSteps& asi) { mutex_.lock(asi); });
                 asi.add([this](IAsyncSteps& asi) { throttle_.lock(asi); });
             }
-            void unlock(IAsyncSteps& asi) noexcept override
+            void unlock(IAsyncSteps& asi) noexcept final
             {
                 throttle_.unlock(asi);
                 mutex_.unlock(asi);

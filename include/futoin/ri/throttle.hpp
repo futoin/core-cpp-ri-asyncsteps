@@ -62,12 +62,12 @@ namespace futoin {
                 timer_ = async_tool.deferred(period, std::ref(reset_callback_));
             }
 
-            ~BaseThrottle() noexcept override
+            ~BaseThrottle() noexcept final
             {
                 timer_.cancel();
             }
 
-            void lock(IAsyncSteps& asi) override
+            void lock(IAsyncSteps& asi) final
             {
                 auto& iter = asi_iter(asi);
                 assert(iter == queue_.end());
@@ -96,7 +96,7 @@ namespace futoin {
                     asi.error(errors::DefenseRejected, "Throttle queue limit");
                 }
             }
-            void unlock(IAsyncSteps& asi) noexcept override
+            void unlock(IAsyncSteps& asi) noexcept final
             {
                 auto& iter = asi_iter(asi);
 

@@ -60,23 +60,23 @@ namespace futoin {
                     PokeCallback poke_external,
                     const Params& params = {}) noexcept;
 
-            ~AsyncTool() noexcept override;
+            ~AsyncTool() noexcept final;
             AsyncTool(const AsyncTool&) = delete;
             AsyncTool& operator=(const AsyncTool&) = delete;
             AsyncTool(AsyncTool&&) = delete;
             AsyncTool& operator=(AsyncTool*&) = delete;
 
-            Handle immediate(CallbackPass&& cb) noexcept override;
+            Handle immediate(CallbackPass&& cb) noexcept final;
             Handle deferred(
                     std::chrono::milliseconds delay,
-                    CallbackPass&& cb) noexcept override;
-            bool is_same_thread() noexcept override;
-            CycleResult iterate() noexcept override;
+                    CallbackPass&& cb) noexcept final;
+            bool is_same_thread() noexcept final;
+            CycleResult iterate() noexcept final;
 
             IMemPool& mem_pool(
                     size_t object_size = 1,
-                    bool optimize = false) noexcept override;
-            void release_memory() noexcept override;
+                    bool optimize = false) noexcept final;
+            void release_memory() noexcept final;
 
             struct Stats
             {
@@ -89,8 +89,8 @@ namespace futoin {
             Stats stats() noexcept;
 
         protected:
-            void cancel(Handle& h) noexcept override;
-            bool is_valid(Handle& h) noexcept override;
+            void cancel(Handle& h) noexcept final;
+            bool is_valid(Handle& h) noexcept final;
 
         private:
             struct Impl;
