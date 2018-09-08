@@ -22,7 +22,6 @@
 #include <cassert>
 #include <iostream>
 #include <list>
-#include <queue>
 //---
 #include <atomic>
 #include <condition_variable>
@@ -30,6 +29,7 @@
 #include <mutex>
 #include <thread>
 //---
+#include <boost/heap/priority_queue.hpp>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/pool/object_pool.hpp>
 
@@ -242,7 +242,7 @@ namespace futoin {
             template<typename T>
             struct DeferredCompare
             {
-                bool operator()(const T& a, const T& b)
+                bool operator()(const T& a, const T& b) const
                 {
                     return a->when > b->when;
                 }
@@ -340,10 +340,9 @@ namespace futoin {
             size_t canceled_handles{0};
 
             using DeferredQueueItem = UniversalHeap::iterator;
-            using DeferredPriorityQueue = std::priority_queue<
+            using DeferredPriorityQueue = boost::heap::priority_queue<
                     DeferredQueueItem,
-                    std::vector<DeferredQueueItem>,
-                    DeferredCompare<DeferredQueueItem>>;
+                    boost::heap::compare<DeferredCompare<DeferredQueueItem>>>;
             DeferredPriorityQueue defer_queue;
 
             //---
@@ -362,6 +361,25 @@ namespace futoin {
             std::thread::id reactor_thread_id;
             std::unique_ptr<std::thread> thread;
             std::unique_ptr<IMemPool> mem_pool;
+
+            //---
+            const clock_type::time_point& now()
+            {
+                if (!use_last_now) {
+                    last_now = clock_type::now();
+                    use_last_now = true;
+                }
+
+                return last_now;
+            }
+
+            void forget_now()
+            {
+                use_last_now = false;
+            }
+
+            clock_type::time_point last_now;
+            bool use_last_now{false};
         };
 
         AsyncTool::AsyncTool(const Params& params) noexcept :
@@ -445,7 +463,7 @@ namespace futoin {
                 std::terminate();
             }
 
-            auto when = clock_type::now() + delay;
+            auto when = impl_->now() + delay;
 
             auto& free_heap = impl_->universal_free_heep;
             auto& used_heap = impl_->defer_used_heap;
@@ -491,6 +509,8 @@ namespace futoin {
                             break;
                         }
 
+                        forget_now();
+
                         if (defer_queue.empty()) {
                             poke_var.wait(lock);
                         } else {
@@ -517,22 +537,26 @@ namespace futoin {
             impl_->iterate();
 
             using std::chrono::milliseconds;
+            auto have_work = true;
+            auto delay = milliseconds(0);
 
             if (impl_->immed_queue.empty()) {
                 if (impl_->defer_queue.empty()) {
-                    return {false, milliseconds(0)};
+                    have_work = false;
+                } else {
+                    delay = std::chrono::duration_cast<milliseconds>(
+                            impl_->defer_queue.top()->when - impl_->now()
+                            + milliseconds(1));
                 }
-
-                auto delay = impl_->defer_queue.top()->when - clock_type::now()
-                             + milliseconds(1);
-                return {true, std::chrono::duration_cast<milliseconds>(delay)};
             }
 
-            return {true, milliseconds(0)};
+            impl_->forget_now();
+            return {have_work, delay};
         }
 
         void AsyncTool::Impl::iterate() noexcept
         {
+            forget_now();
             auto immed_begin = immed_queue.begin();
             auto iter = immed_begin;
 
@@ -559,7 +583,7 @@ namespace futoin {
             }
 
             if (!defer_queue.empty()) {
-                const auto now = clock_type::now();
+                const auto now = this->now();
 
                 // NOTE: it's assumed deferred calls are almost always canceled,
                 // but not executed!
@@ -591,7 +615,7 @@ namespace futoin {
                     auto iter = defer_used_heap.begin();
                     const auto end = defer_used_heap.end();
 
-                    defer_queue = DeferredPriorityQueue();
+                    defer_queue.clear();
 
                     while (iter != end) {
                         if (iter->cookie != 0) {

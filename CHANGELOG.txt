@@ -1,7 +1,8 @@
 
 === (next) ===
-CHANGED: minor revise of the public interfaces of public API implementations
 CHANGED: major boost for immediates-only processing
+CHANGED: huge 15x boost for deferred() call setup at cost of minor precision lose
+CHANGED: minor revise of the public interfaces of public API implementations
 CHANGED: minor refactoring of MemPool code
 
 === 1.0.0 (2018-09-07) ===
