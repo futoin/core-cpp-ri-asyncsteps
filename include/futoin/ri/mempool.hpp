@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <mutex>
 //---
 
@@ -34,11 +35,10 @@ namespace futoin {
          * @brief boost::pool-based type-erased memory pool
          */
         template<typename Mutex>
-        class BoostMemPool final : public IMemPool
+        class BoostMemPool : public IMemPool
         {
         public:
-            BoostMemPool(IMemPool& root, size_t requested_size) noexcept :
-                root(root),
+            BoostMemPool(size_t requested_size) noexcept :
                 pool(requested_size, 16 * 1024 / requested_size)
             {}
 
@@ -71,21 +71,22 @@ namespace futoin {
                 pool.release_memory();
             }
 
-            IMemPool& mem_pool(size_t object_size, bool optimize) noexcept final
-            {
-                return root.mem_pool(object_size, optimize);
-            }
-
         private:
-            IMemPool& root;
             boost::pool<boost::default_user_allocator_malloc_free> pool;
             Mutex mutex;
         };
 
-        class PassthroughMemPool final : public futoin::PassthroughMemPool
+        template<typename Base>
+        class OptimizeableMemPool final : public Base
         {
         public:
-            PassthroughMemPool(IMemPool& root) noexcept : root(root) {}
+            OptimizeableMemPool(IMemPool& root) noexcept : root(root) {}
+
+            template<typename... Args>
+            OptimizeableMemPool(IMemPool& root, Args&&... args) noexcept :
+                Base(std::forward<Args>(args)...),
+                root(root)
+            {}
 
             IMemPool& mem_pool(size_t object_size, bool optimize) noexcept final
             {
@@ -110,15 +111,7 @@ namespace futoin {
                         ((res == nullptr) || (std::strcmp(res, "true") == 0));
             }
 
-            ~MemPoolManager() noexcept final
-            {
-                for (auto& p : pools) {
-                    if (p != nullptr) {
-                        delete p;
-                        p = nullptr;
-                    }
-                }
-            }
+            ~MemPoolManager() noexcept final = default;
 
             void* allocate(size_t object_size, size_t count) noexcept final
             {
@@ -136,8 +129,8 @@ namespace futoin {
             {
                 std::lock_guard<Mutex> lock(mutex);
 
-                for (auto p : pools) {
-                    if (p != nullptr) {
+                for (auto& p : pools) {
+                    if (p) {
                         p->release_memory();
                     }
                 }
@@ -152,18 +145,18 @@ namespace futoin {
                     auto key = aligned_size - 1;
 
                     if (key < pools.size()) {
-                        auto p = pools[key];
+                        auto& p = pools[key];
 
-                        if (p == nullptr) {
+                        if (!p) {
                             std::lock_guard<Mutex> lock(mutex);
-                            p = pools[key];
 
-                            if (p == nullptr) {
+                            if (!p) {
                                 auto pool_size =
                                         aligned_size * sizeof(ptrdiff_t);
 
-                                p = new BoostMemPool<Mutex>(*this, pool_size);
-                                pools[key] = p;
+                                using PoolType = OptimizeableMemPool<
+                                        BoostMemPool<Mutex>>;
+                                p.reset(new PoolType(*this, pool_size));
                             }
                         }
 
@@ -182,9 +175,10 @@ namespace futoin {
         private:
             // MAX_OBJECT_SIZE_IN_POINTERS x ptrdiff_t
             static constexpr size_t MAX_OBJECT_SIZE_IN_POINTERS = 128;
-            std::array<IMemPool*, MAX_OBJECT_SIZE_IN_POINTERS> pools{nullptr};
+            std::array<std::unique_ptr<IMemPool>, MAX_OBJECT_SIZE_IN_POINTERS>
+                    pools;
             Mutex mutex;
-            PassthroughMemPool default_pool{*this};
+            OptimizeableMemPool<PassthroughMemPool> default_pool{*this};
             bool allow_optimize_;
         };
     } // namespace ri
