@@ -15,6 +15,7 @@
 //   limitations under the License.
 //-----------------------------------------------------------------------------
 
+#include <futoin/fatalmsg.hpp>
 #include <futoin/ri/asyncsteps.hpp>
 #include <futoin/ri/asynctool.hpp>
 #include <futoin/ri/mempool.hpp>
@@ -265,8 +266,7 @@ namespace futoin {
 
                 if (thread) {
                     if (std::this_thread::get_id() == thread->get_id()) {
-                        std::cerr << "FATAL: invalid d-tor call" << std::endl;
-                        std::terminate();
+                        FatalMsg() << "invalid d-tor call";
                     }
 
                     {
@@ -454,13 +454,10 @@ namespace futoin {
             }
 
             if (delay < std::chrono::milliseconds(100)) {
-                std::cerr << "FATAL: deferred AsyncTool calls are designed for "
-                             "timeouts!"
-                          << std::endl
-                          << "       Avoid using it for too short delays "
-                             "(<100ms)."
-                          << std::endl;
-                std::terminate();
+                FatalMsg()
+                        << "deferred AsyncTool calls are designed for timeouts!"
+                        << std::endl
+                        << "Avoid using it for too short delays (<100ms).";
             }
 
             auto when = impl_->now() + delay;
@@ -528,10 +525,8 @@ namespace futoin {
         AsyncTool::CycleResult AsyncTool::iterate() noexcept
         {
             if (!is_same_thread()) {
-                std::cerr << "FATAL: AsyncTool::iterate() must be called from "
-                             "c-tor thread!"
-                          << std::endl;
-                std::terminate();
+                FatalMsg() << "AsyncTool::iterate() must be called from "
+                              "c-tor thread!";
             }
 
             impl_->iterate();

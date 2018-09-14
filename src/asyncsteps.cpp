@@ -15,6 +15,7 @@
 //   limitations under the License.
 //-----------------------------------------------------------------------------
 
+#include <futoin/fatalmsg.hpp>
 #include <futoin/ri/asyncsteps.hpp>
 
 #include <cassert>
@@ -33,17 +34,13 @@ namespace futoin {
         [[noreturn]] static void on_invalid_call(
                 const char* extra_error = nullptr)
         {
-            std::cerr << std::endl;
-            std::cerr << "FATAL: Invalid AsyncSteps interface usage!"
-                      << std::endl;
+            FatalMsg m;
+
+            m << "Invalid AsyncSteps interface usage!";
 
             if (extra_error != nullptr) {
-                std::cerr << extra_error << std::endl;
+                m.stream() << std::endl << extra_error;
             }
-
-            std::cerr << std::endl;
-
-            std::terminate();
         }
 
         //---

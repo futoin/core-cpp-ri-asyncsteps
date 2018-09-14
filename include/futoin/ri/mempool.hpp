@@ -18,6 +18,7 @@
 #ifndef FUTOIN_RI_MEMPOOL_HPP
 #define FUTOIN_RI_MEMPOOL_HPP
 //---
+#include <futoin/fatalmsg.hpp>
 #include <futoin/imempool.hpp>
 //---
 #include <array>
@@ -45,11 +46,9 @@ namespace futoin {
             void* allocate(size_t object_size, size_t count) noexcept final
             {
                 if (object_size != pool.get_requested_size()) {
-                    std::cout << "FATAL: invalid optimized allocator use"
-                              << " object_size=" << object_size
-                              << " pool_size=" << pool.get_requested_size()
-                              << std::endl;
-                    std::terminate();
+                    FatalMsg() << "invalid optimized allocator use"
+                               << " object_size=" << object_size
+                               << " pool_size=" << pool.get_requested_size();
                 }
 
                 std::lock_guard<Mutex> lock(mutex);
@@ -163,10 +162,8 @@ namespace futoin {
                         return *p;
                     }
 
-                    std::cout << "FATAL: unable to optimize "
-                                 "object_size="
-                              << object_size << std::endl;
-                    std::terminate();
+                    FatalMsg()
+                            << "unable to optimize object_size=" << object_size;
                 }
 
                 return default_pool;
