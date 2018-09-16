@@ -79,7 +79,7 @@ namespace futoin {
                         queue_.splice(queue_.end(), free_list_, iter);
                         asi.waitExternal();
                     } else {
-                        iter = std::move(locked_list_.end()); // clear
+                        iter = locked_list_.end(); // clear
                         asi.error(errors::DefenseRejected, "Mutex queue limit");
                     }
                 } else {
@@ -110,7 +110,7 @@ namespace futoin {
                     free_list_.splice(free_list_.end(), locked_list_, iter);
                 }
 
-                iter = std::move(locked_list_.end()); // clear
+                iter = locked_list_.end(); // clear
 
                 //---
                 while (locked_list_.size() < max_) {

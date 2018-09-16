@@ -71,7 +71,7 @@ namespace futoin {
 
         private:
             struct ExtStepState;
-            struct ProtectorData;
+            class ProtectorData;
             class ParallelStep;
             class Protector;
             struct Impl;
@@ -87,7 +87,7 @@ namespace futoin {
         class AsyncSteps final : public BaseAsyncSteps
         {
         public:
-            AsyncSteps(IAsyncTool&) noexcept;
+            AsyncSteps(IAsyncTool& async_tool) noexcept;
             ~AsyncSteps() noexcept final;
 
             AsyncSteps(const AsyncSteps&) = delete;

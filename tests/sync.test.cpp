@@ -49,7 +49,7 @@ BOOST_AUTO_TEST_CASE(outer) // NOLINT
 
     auto f = [&](IAsyncSteps& asi) {
         count.fetch_add(1);
-        asi.add([&](IAsyncSteps& asi) {
+        asi.add([&](IAsyncSteps&) {
             max.store(std::max(max, count));
             count.fetch_sub(1);
         });
@@ -62,8 +62,8 @@ BOOST_AUTO_TEST_CASE(outer) // NOLINT
     as2.execute();
     while (at.iterate().have_work) {
     }
-    BOOST_CHECK_EQUAL(max, 1);
-    BOOST_CHECK_EQUAL(count, 0);
+    BOOST_CHECK_EQUAL(max, 1U);
+    BOOST_CHECK_EQUAL(count, 0U);
 }
 
 BOOST_AUTO_TEST_CASE(inner) // NOLINT
@@ -80,7 +80,7 @@ BOOST_AUTO_TEST_CASE(inner) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(mtx, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
-            asi.add([&](IAsyncSteps& asi) {
+            asi.add([&](IAsyncSteps&) {
                 max.store(std::max(max, count));
                 count.fetch_sub(1);
             });
@@ -94,8 +94,8 @@ BOOST_AUTO_TEST_CASE(inner) // NOLINT
     as2.execute();
     while (at.iterate().have_work) {
     }
-    BOOST_CHECK_EQUAL(max, 1);
-    BOOST_CHECK_EQUAL(count, 0);
+    BOOST_CHECK_EQUAL(max, 1U);
+    BOOST_CHECK_EQUAL(count, 0U);
 }
 
 BOOST_AUTO_TEST_CASE(args) // NOLINT
@@ -106,7 +106,7 @@ BOOST_AUTO_TEST_CASE(args) // NOLINT
     ri::AsyncSteps asi{at};
 
     asi.add([](IAsyncSteps& asi) { asi(123, true); });
-    asi.sync(mtx, [](IAsyncSteps& asi, int a, bool b) {
+    asi.sync(mtx, [](IAsyncSteps&, int a, bool b) {
         BOOST_CHECK_EQUAL(a, 123);
         BOOST_CHECK_EQUAL(b, true);
     });
@@ -130,7 +130,7 @@ BOOST_AUTO_TEST_CASE(recursion) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(mtx, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
-            asi.sync(mtx, [&](IAsyncSteps& asi) {
+            asi.sync(mtx, [&](IAsyncSteps&) {
                 max.store(std::max(max, count));
                 count.fetch_sub(1);
             });
@@ -144,8 +144,8 @@ BOOST_AUTO_TEST_CASE(recursion) // NOLINT
     as2.execute();
     while (at.iterate().have_work) {
     }
-    BOOST_CHECK_EQUAL(max, 1);
-    BOOST_CHECK_EQUAL(count, 0);
+    BOOST_CHECK_EQUAL(max, 1U);
+    BOOST_CHECK_EQUAL(count, 0U);
 }
 
 BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
@@ -163,7 +163,7 @@ BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(mtx, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
-            asi.sync(mtx, [&](IAsyncSteps& asi) {
+            asi.sync(mtx, [&](IAsyncSteps&) {
                 max.store(std::max(max, count));
                 count.fetch_sub(1);
             });
@@ -187,8 +187,8 @@ BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
     }
 
     BOOST_CHECK(called);
-    BOOST_CHECK_EQUAL(max, 1);
-    BOOST_CHECK_EQUAL(count, 0);
+    BOOST_CHECK_EQUAL(max, 1U);
+    BOOST_CHECK_EQUAL(count, 0U);
 }
 
 BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
@@ -207,7 +207,7 @@ BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(mtx, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
-            asi.sync(mtx, [&](IAsyncSteps& asi) {
+            asi.sync(mtx, [&](IAsyncSteps&) {
                 max.store(std::max(max, count));
                 count.fetch_sub(1);
             });
@@ -226,8 +226,8 @@ BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
     while (at.iterate().have_work) {
     }
 
-    BOOST_CHECK_EQUAL(max, 2);
-    BOOST_CHECK_EQUAL(count, 0);
+    BOOST_CHECK_EQUAL(max, 2U);
+    BOOST_CHECK_EQUAL(count, 0U);
 }
 
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
@@ -250,12 +250,12 @@ BOOST_AUTO_TEST_CASE(outer) // NOLINT
 
     auto f = [&](IAsyncSteps& asi) {
         count.fetch_add(1);
-        asi.add([&](IAsyncSteps& asi) {
+        asi.add([&](IAsyncSteps&) {
             max.store(std::max(max, count));
             count.fetch_sub(1);
         });
     };
-    auto df = [&](IAsyncSteps& asi) { done.fetch_add(1); };
+    auto df = [&](IAsyncSteps&) { done.fetch_add(1); };
 
     as1.sync(thr, f);
     as2.sync(thr, f);
@@ -268,8 +268,8 @@ BOOST_AUTO_TEST_CASE(outer) // NOLINT
     while (at.iterate().have_work && (done.load() != 2)) {
     }
 
-    BOOST_CHECK_EQUAL(max, 1);
-    BOOST_CHECK_EQUAL(count, 0);
+    BOOST_CHECK_EQUAL(max, 1U);
+    BOOST_CHECK_EQUAL(count, 0U);
 }
 
 BOOST_AUTO_TEST_CASE(args) // NOLINT
@@ -280,13 +280,13 @@ BOOST_AUTO_TEST_CASE(args) // NOLINT
     ri::AsyncSteps asi{at};
 
     asi.add([](IAsyncSteps& asi) { asi(123, true); });
-    asi.sync(thr, [](IAsyncSteps& asi, int a, bool b) {
+    asi.sync(thr, [](IAsyncSteps&, int a, bool b) {
         BOOST_CHECK_EQUAL(a, 123);
         BOOST_CHECK_EQUAL(b, true);
     });
 
     std::promise<void> done;
-    asi.add([&](IAsyncSteps& asi) { done.set_value(); });
+    asi.add([&](IAsyncSteps&) { done.set_value(); });
 
     asi.execute();
     done.get_future().wait();
@@ -326,8 +326,8 @@ BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
     as1.execute();
     as2.execute();
     BOOST_CHECK(as3.promise<bool>().get());
-    BOOST_CHECK_EQUAL(max, 1);
-    BOOST_CHECK_EQUAL(count, 0);
+    BOOST_CHECK_EQUAL(max, 1U);
+    BOOST_CHECK_EQUAL(count, 0U);
 }
 
 BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
@@ -346,7 +346,7 @@ BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(thr, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
-            asi.add([&](IAsyncSteps& asi) {
+            asi.add([&](IAsyncSteps&) {
                 max.store(std::max(max, count));
                 count.fetch_sub(1);
             });
@@ -363,8 +363,8 @@ BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
     as3.execute();
     as4.promise().wait();
 
-    BOOST_CHECK_EQUAL(max, 2);
-    BOOST_CHECK_EQUAL(count, 0);
+    BOOST_CHECK_EQUAL(max, 2U);
+    BOOST_CHECK_EQUAL(count, 0U);
 }
 
 BOOST_AUTO_TEST_CASE(time_stop_start) // NOLINT
@@ -379,13 +379,13 @@ BOOST_AUTO_TEST_CASE(time_stop_start) // NOLINT
 
     std::atomic_size_t count{0};
 
-    auto f = [&](IAsyncSteps& asi, size_t i) {
-        asi.sync(thr, [&](IAsyncSteps& asi) { count.fetch_add(1); });
+    auto f = [&](IAsyncSteps& asi, size_t) {
+        asi.sync(thr, [&](IAsyncSteps&) { count.fetch_add(1); });
     };
 
     as.repeat(3, f);
-    at.deferred(delay * 4 / 5, [&]() { BOOST_CHECK_EQUAL(count, 2); });
-    at.deferred(delay * 3 / 2, [&]() { BOOST_CHECK_EQUAL(count, 3); });
+    at.deferred(delay * 4 / 5, [&]() { BOOST_CHECK_EQUAL(count, 2U); });
+    at.deferred(delay * 3 / 2, [&]() { BOOST_CHECK_EQUAL(count, 3U); });
 
     as.execute();
 
@@ -394,8 +394,8 @@ BOOST_AUTO_TEST_CASE(time_stop_start) // NOLINT
 
     auto f2 = [&]() {
         as.repeat(3, f);
-        at.deferred(delay * 4 / 5, [&]() { BOOST_CHECK_EQUAL(count, 5); });
-        at.deferred(delay * 3 / 2, [&]() { BOOST_CHECK_EQUAL(count, 6); });
+        at.deferred(delay * 4 / 5, [&]() { BOOST_CHECK_EQUAL(count, 5U); });
+        at.deferred(delay * 3 / 2, [&]() { BOOST_CHECK_EQUAL(count, 6U); });
         as.execute();
     };
 
@@ -404,7 +404,7 @@ BOOST_AUTO_TEST_CASE(time_stop_start) // NOLINT
     while (at.iterate().have_work) {
     }
 
-    BOOST_CHECK_EQUAL(count, 6);
+    BOOST_CHECK_EQUAL(count, 6U);
 }
 
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
@@ -430,7 +430,7 @@ BOOST_AUTO_TEST_CASE(outer_concurrent) // NOLINT
 
     auto f = [&](IAsyncSteps& asi) {
         count.fetch_add(1);
-        asi.add([&](IAsyncSteps& asi) {
+        asi.add([&](IAsyncSteps&) {
             max.store(std::max(max, count));
             count.fetch_sub(1);
         });
@@ -442,7 +442,7 @@ BOOST_AUTO_TEST_CASE(outer_concurrent) // NOLINT
     //---
     std::atomic_size_t done{0};
 
-    auto df = [&](IAsyncSteps& asi) { done.fetch_add(1); };
+    auto df = [&](IAsyncSteps&) { done.fetch_add(1); };
 
     as1.add(df);
     as2.add(df);
@@ -454,8 +454,8 @@ BOOST_AUTO_TEST_CASE(outer_concurrent) // NOLINT
     while (at.iterate().have_work && (done.load() != 2)) {
     }
 
-    BOOST_CHECK_EQUAL(max, 1);
-    BOOST_CHECK_EQUAL(count, 0);
+    BOOST_CHECK_EQUAL(max, 1U);
+    BOOST_CHECK_EQUAL(count, 0U);
 }
 
 BOOST_AUTO_TEST_CASE(inner_concurrent) // NOLINT
@@ -476,7 +476,7 @@ BOOST_AUTO_TEST_CASE(inner_concurrent) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(lmtr, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
-            asi.add([&](IAsyncSteps& asi) {
+            asi.add([&](IAsyncSteps&) {
                 max.store(std::max(max, count));
                 count.fetch_sub(1);
             });
@@ -489,7 +489,7 @@ BOOST_AUTO_TEST_CASE(inner_concurrent) // NOLINT
     //---
     std::atomic_size_t done{0};
 
-    auto df = [&](IAsyncSteps& asi) { done.fetch_add(1); };
+    auto df = [&](IAsyncSteps&) { done.fetch_add(1); };
 
     as1.add(df);
     as2.add(df);
@@ -501,8 +501,8 @@ BOOST_AUTO_TEST_CASE(inner_concurrent) // NOLINT
     while (at.iterate().have_work && (done.load() != 2)) {
     }
 
-    BOOST_CHECK_EQUAL(max, 1);
-    BOOST_CHECK_EQUAL(count, 0);
+    BOOST_CHECK_EQUAL(max, 1U);
+    BOOST_CHECK_EQUAL(count, 0U);
 }
 
 BOOST_AUTO_TEST_CASE(args) // NOLINT
@@ -514,7 +514,7 @@ BOOST_AUTO_TEST_CASE(args) // NOLINT
     ri::AsyncSteps asi{at};
 
     asi.add([](IAsyncSteps& asi) { asi(123, true); });
-    asi.sync(lmtr, [](IAsyncSteps& asi, int a, bool b) {
+    asi.sync(lmtr, [](IAsyncSteps&, int a, bool b) {
         BOOST_CHECK_EQUAL(a, 123);
         BOOST_CHECK_EQUAL(b, true);
     });
@@ -540,7 +540,7 @@ BOOST_AUTO_TEST_CASE(recursion) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(lmtr, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
-            asi.sync(lmtr, [&](IAsyncSteps& asi) {
+            asi.sync(lmtr, [&](IAsyncSteps&) {
                 max.store(std::max(max, count));
                 count.fetch_sub(1);
             });
@@ -553,7 +553,7 @@ BOOST_AUTO_TEST_CASE(recursion) // NOLINT
     //---
     std::atomic_size_t done{0};
 
-    auto df = [&](IAsyncSteps& asi) { done.fetch_add(1); };
+    auto df = [&](IAsyncSteps&) { done.fetch_add(1); };
 
     as1.add(df);
     as2.add(df);
@@ -565,8 +565,8 @@ BOOST_AUTO_TEST_CASE(recursion) // NOLINT
     while (at.iterate().have_work && (done.load() != 2)) {
     }
 
-    BOOST_CHECK_EQUAL(max, 1);
-    BOOST_CHECK_EQUAL(count, 0);
+    BOOST_CHECK_EQUAL(max, 1U);
+    BOOST_CHECK_EQUAL(count, 0U);
 }
 
 BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
@@ -588,7 +588,7 @@ BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(lmtr, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
-            asi.sync(lmtr, [&](IAsyncSteps& asi) {
+            asi.sync(lmtr, [&](IAsyncSteps&) {
                 max.store(std::max(max, count));
                 count.fetch_sub(1);
             });
@@ -608,7 +608,7 @@ BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
     //---
     std::atomic_size_t done{0};
 
-    auto df = [&](IAsyncSteps& asi) { done.fetch_add(1); };
+    auto df = [&](IAsyncSteps&) { done.fetch_add(1); };
 
     as1.add(df);
     as2.add(df);
@@ -624,8 +624,8 @@ BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
     }
 
     BOOST_CHECK(called);
-    BOOST_CHECK_EQUAL(max, 1);
-    BOOST_CHECK_EQUAL(count, 0);
+    BOOST_CHECK_EQUAL(max, 1U);
+    BOOST_CHECK_EQUAL(count, 0U);
 }
 
 BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
@@ -651,7 +651,7 @@ BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(lmtr, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
-            asi.sync(lmtr, [&](IAsyncSteps& asi) {
+            asi.sync(lmtr, [&](IAsyncSteps&) {
                 max.store(std::max(max, count));
                 count.fetch_sub(1);
             });
@@ -666,7 +666,7 @@ BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
     //---
     std::atomic_size_t done{0};
 
-    auto df = [&](IAsyncSteps& asi) { done.fetch_add(1); };
+    auto df = [&](IAsyncSteps&) { done.fetch_add(1); };
 
     as1.add(df);
     as2.add(df);
@@ -682,8 +682,8 @@ BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
     while (at.iterate().have_work && (done.load() != 4)) {
     }
 
-    BOOST_CHECK_EQUAL(max, 2);
-    BOOST_CHECK_EQUAL(count, 0);
+    BOOST_CHECK_EQUAL(max, 2U);
+    BOOST_CHECK_EQUAL(count, 0U);
 }
 
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
@@ -705,7 +705,7 @@ BOOST_AUTO_TEST_CASE(mutex_performance) // NOLINT
     } refs;
 
     auto f = [&](IAsyncSteps& asi) {
-        asi.sync(refs.mtx, [&](IAsyncSteps& asi) { ++(refs.count); });
+        asi.sync(refs.mtx, [&](IAsyncSteps&) { ++(refs.count); });
     };
 
     refs.at.immediate([&]() {
@@ -746,7 +746,7 @@ BOOST_AUTO_TEST_CASE(throttle_performance) // NOLINT
     } refs;
 
     auto f = [&](IAsyncSteps& asi) {
-        asi.sync(refs.thr, [&](IAsyncSteps& asi) { ++(refs.count); });
+        asi.sync(refs.thr, [&](IAsyncSteps&) { ++(refs.count); });
     };
 
     refs.at.immediate([&]() {
@@ -795,7 +795,7 @@ BOOST_AUTO_TEST_CASE(stress) // NOLINT
         asi.add(
                 [&](IAsyncSteps& asi) {
                     asi.sync(refs.thr, [&](IAsyncSteps& asi) {
-                        asi.sync(refs.thr, [&](IAsyncSteps& asi) {
+                        asi.sync(refs.thr, [&](IAsyncSteps&) {
                             ++(refs.count);
                         });
                     });

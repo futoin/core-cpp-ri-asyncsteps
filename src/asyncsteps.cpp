@@ -1084,9 +1084,9 @@ namespace futoin {
         }
 
         //---
-        AsyncSteps::AsyncSteps(IAsyncTool& at) noexcept :
-            BaseAsyncSteps(state_, at),
-            state_(at.mem_pool())
+        AsyncSteps::AsyncSteps(IAsyncTool& async_tool) noexcept :
+            BaseAsyncSteps(state_, async_tool),
+            state_(async_tool.mem_pool())
         {}
 
         AsyncSteps::~AsyncSteps() noexcept

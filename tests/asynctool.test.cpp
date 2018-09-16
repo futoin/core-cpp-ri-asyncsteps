@@ -60,7 +60,7 @@ BOOST_AUTO_TEST_CASE(immediate) // NOLINT
     BOOST_CHECK_EQUAL(fired, true);
     BOOST_CHECK_EQUAL(res.have_work, false);
 
-    auto res2 = at.iterate();
+    at.iterate();
     BOOST_CHECK_EQUAL(res.have_work, false);
 }
 
@@ -289,7 +289,7 @@ BOOST_AUTO_TEST_CASE(immediate_cancel) // NOLINT
 
     refs.ready_to_test.get_future().wait();
     BOOST_CHECK_EQUAL(refs.val, 2);
-    BOOST_CHECK_EQUAL(refs.fired, 1 + AsyncTool::BURST_COUNT - 2 + 2);
+    BOOST_CHECK_EQUAL(refs.fired, int(1 + AsyncTool::BURST_COUNT - 2 + 2));
 }
 
 BOOST_AUTO_TEST_CASE(immediate_variations) // NOLINT
@@ -477,10 +477,10 @@ BOOST_AUTO_TEST_CASE(performance_deferred) // NOLINT
                   << " universal_free=" << stats.universal_free << std::endl
                   << " handle_task_count=" << stats.handle_task_count
                   << std::endl;
-        BOOST_CHECK_LE(stats.immediate_used, 6);
+        BOOST_CHECK_LE(stats.immediate_used, 6U);
         BOOST_CHECK_LE(stats.deferred_used, AsyncTool::BURST_COUNT / 10 + 10);
         BOOST_CHECK_LE(stats.universal_free, AsyncTool::BURST_COUNT * 2);
-        BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
+        BOOST_CHECK_EQUAL(stats.handle_task_count, 0U);
     };
 
     refs.at.immediate([&]() { refs.raw_count = measure_raw_count(); });
@@ -540,9 +540,9 @@ BOOST_AUTO_TEST_CASE(performance_pure_immediates) // NOLINT
                   << " handle_task_count=" << stats.handle_task_count
                   << std::endl;
         BOOST_CHECK_LE(stats.immediate_used, AsyncTool::BURST_COUNT + 1);
-        BOOST_CHECK_LE(stats.deferred_used, 2);
+        BOOST_CHECK_LE(stats.deferred_used, 2U);
         BOOST_CHECK_LE(stats.universal_free, AsyncTool::BURST_COUNT * 2);
-        BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
+        BOOST_CHECK_EQUAL(stats.handle_task_count, 0U);
     };
 
     refs.at.immediate([&]() { refs.raw_count = measure_raw_count(); });
@@ -597,9 +597,9 @@ BOOST_AUTO_TEST_CASE(performance_immediates_with_defer) // NOLINT
                   << " handle_task_count=" << stats.handle_task_count
                   << std::endl;
         BOOST_CHECK_LE(stats.immediate_used, AsyncTool::BURST_COUNT + 1);
-        BOOST_CHECK_LE(stats.deferred_used, 2);
+        BOOST_CHECK_LE(stats.deferred_used, 2U);
         BOOST_CHECK_LE(stats.universal_free, AsyncTool::BURST_COUNT * 2);
-        BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
+        BOOST_CHECK_EQUAL(stats.handle_task_count, 0U);
     };
 
     refs.at.immediate([&]() { refs.raw_count = measure_raw_count(); });
@@ -667,7 +667,7 @@ BOOST_AUTO_TEST_CASE(stress) // NOLINT
         BOOST_CHECK_LE(stats.immediate_used, STEP_COUNT * 2);
         BOOST_CHECK_LE(
                 stats.deferred_used + stats.universal_free, STEP_COUNT * 3);
-        BOOST_CHECK_EQUAL(stats.handle_task_count, 0);
+        BOOST_CHECK_EQUAL(stats.handle_task_count, 0U);
     };
 
     refs.at.immediate([&]() { refs.raw_count = measure_raw_count(); });

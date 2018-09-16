@@ -30,6 +30,9 @@
 #include <mutex>
 #include <thread>
 //---
+// Make clang-tidy happy with Boost 1.67
+#include <boost/next_prior.hpp>
+//---
 #include <boost/heap/priority_queue.hpp>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/pool/object_pool.hpp>

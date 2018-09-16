@@ -92,7 +92,7 @@ namespace futoin {
                     queue_.splice(queue_.end(), free_list_, iter);
                     asi.waitExternal();
                 } else {
-                    iter = std::move(queue_.end()); // clear
+                    iter = queue_.end(); // clear
                     asi.error(errors::DefenseRejected, "Throttle queue limit");
                 }
             }
@@ -107,7 +107,7 @@ namespace futoin {
                 std::lock_guard<OSMutex> lock(mutex_);
                 free_list_.splice(free_list_.end(), queue_, iter);
                 *iter = nullptr;
-                iter = std::move(queue_.end()); // clear
+                iter = queue_.end(); // clear
             }
 
             void reset()
@@ -155,7 +155,7 @@ namespace futoin {
                 auto iter = begin;
 
                 while ((count_ < max_) && (iter != queue_.end())) {
-                    asi_iter(**iter) = std::move(queue_.end()); // clear
+                    asi_iter(**iter) = queue_.end(); // clear
                     ++count_;
                     (*iter)->success();
                     *iter = nullptr;

@@ -80,7 +80,7 @@ BOOST_AUTO_TEST_CASE(add_success) // NOLINT
     asi.execute();
 
     done.get_future().wait();
-    BOOST_CHECK_EQUAL(count, 4);
+    BOOST_CHECK_EQUAL(count, 4U);
 }
 
 BOOST_AUTO_TEST_CASE(inner_add_success) // NOLINT
@@ -138,7 +138,7 @@ BOOST_AUTO_TEST_CASE(inner_add_success) // NOLINT
     asi.execute();
 
     done.get_future().wait();
-    BOOST_CHECK_EQUAL(count, 4);
+    BOOST_CHECK_EQUAL(count, 4U);
 }
 
 BOOST_AUTO_TEST_CASE(state) // NOLINT
@@ -265,7 +265,7 @@ BOOST_AUTO_TEST_CASE(set_cancel_success) // NOLINT
         asi.setCancel([](IAsyncSteps&) {});
         wait.set_value(&asi);
     });
-    asi.add([&](IAsyncSteps& asi) {
+    asi.add([&](IAsyncSteps&) {
         ++count;
         done.set_value();
     });
@@ -275,7 +275,7 @@ BOOST_AUTO_TEST_CASE(set_cancel_success) // NOLINT
     const_cast<IAsyncSteps*>(wait.get_future().get())->success();
 
     done.get_future().wait();
-    BOOST_CHECK_EQUAL(count, 2);
+    BOOST_CHECK_EQUAL(count, 2U);
 }
 
 BOOST_AUTO_TEST_CASE(wait_external_error) // NOLINT
@@ -316,7 +316,7 @@ BOOST_AUTO_TEST_CASE(wait_external_error) // NOLINT
     }
 
     BOOST_CHECK(done.get_future().get());
-    BOOST_CHECK_EQUAL(count, 2);
+    BOOST_CHECK_EQUAL(count, 2U);
 }
 
 BOOST_AUTO_TEST_CASE(set_timeout_success) // NOLINT
@@ -334,7 +334,7 @@ BOOST_AUTO_TEST_CASE(set_timeout_success) // NOLINT
         asi.setTimeout(TEST_DELAY);
         wait.set_value(&asi);
     });
-    asi.add([&](IAsyncSteps& asi) {
+    asi.add([&](IAsyncSteps&) {
         ++count;
         done.set_value();
     });
@@ -344,7 +344,7 @@ BOOST_AUTO_TEST_CASE(set_timeout_success) // NOLINT
     const_cast<IAsyncSteps*>(wait.get_future().get())->success();
 
     done.get_future().wait();
-    BOOST_CHECK_EQUAL(count, 2);
+    BOOST_CHECK_EQUAL(count, 2U);
 }
 
 BOOST_AUTO_TEST_CASE(set_timeout_fail) // NOLINT
@@ -366,7 +366,7 @@ BOOST_AUTO_TEST_CASE(set_timeout_fail) // NOLINT
                 BOOST_CHECK_EQUAL(err, "Timeout");
                 asi.success();
             });
-    asi.add([&](IAsyncSteps& asi) {
+    asi.add([&](IAsyncSteps&) {
         ++count;
         done.set_value();
     });
@@ -374,7 +374,7 @@ BOOST_AUTO_TEST_CASE(set_timeout_fail) // NOLINT
     asi.execute();
 
     done.get_future().wait();
-    BOOST_CHECK_EQUAL(count, 3);
+    BOOST_CHECK_EQUAL(count, 3U);
 }
 
 BOOST_AUTO_TEST_CASE(catch_trace) // NOLINT
@@ -392,11 +392,11 @@ BOOST_AUTO_TEST_CASE(catch_trace) // NOLINT
     asi.add(
             [](IAsyncSteps& asi) {
                 asi.add([](IAsyncSteps& asi) { asi.error("test"); },
-                        [](IAsyncSteps& asi, ErrorCode code) {
+                        [](IAsyncSteps& asi, ErrorCode) {
                             asi.error("other");
                         });
             },
-            [](IAsyncSteps& asi, ErrorCode code) {
+            [](IAsyncSteps& asi, ErrorCode) {
                 asi.state<std::reference_wrapper<Promise>>("done")
                         .get()
                         .set_value();
@@ -405,7 +405,7 @@ BOOST_AUTO_TEST_CASE(catch_trace) // NOLINT
 
     asi.execute();
     done.get_future().wait();
-    BOOST_CHECK_EQUAL(count, 2);
+    BOOST_CHECK_EQUAL(count, 2U);
 }
 
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
@@ -423,10 +423,10 @@ BOOST_AUTO_TEST_CASE(repeat) // NOLINT
 
     asi.state()["cnt"] = 0;
     asi.repeat(100, [](IAsyncSteps& asi, size_t i) {
-        BOOST_CHECK_EQUAL(asi.state<int>("cnt"), i);
+        BOOST_CHECK_EQUAL(asi.state<int>("cnt"), int(i));
         asi.state<int>("cnt")++;
     });
-    asi.add([&](IAsyncSteps& asi) { done.set_value(); });
+    asi.add([&](IAsyncSteps&) { done.set_value(); });
     asi.execute();
     done.get_future().wait();
 
@@ -450,7 +450,7 @@ BOOST_AUTO_TEST_CASE(loop_break) // NOLINT
 
                 asi.forEach(
                         V{1, 2, 3, 4},
-                        [](IAsyncSteps& asi, size_t index, const int& val) {
+                        [](IAsyncSteps& asi, size_t, const int&) {
                             auto& result = asi.state<V>("result");
                             result.push_back(2);
 
@@ -474,7 +474,7 @@ BOOST_AUTO_TEST_CASE(loop_break) // NOLINT
             },
             "Outer");
 
-    asi.add([&](IAsyncSteps& asi) { done.set_value(); });
+    asi.add([&](IAsyncSteps&) { done.set_value(); });
     asi.execute();
     done.get_future().wait();
 
@@ -507,7 +507,7 @@ BOOST_AUTO_TEST_CASE(loop_continue) // NOLINT
 
                 asi.forEach(
                         V{1, 2, 3, 4},
-                        [](IAsyncSteps& asi, size_t index, const int& val) {
+                        [](IAsyncSteps& asi, size_t, const int&) {
                             auto& result = asi.state<V>("result");
                             result.push_back(2);
 
@@ -531,7 +531,7 @@ BOOST_AUTO_TEST_CASE(loop_continue) // NOLINT
             },
             "Outer");
 
-    asi.add([&](IAsyncSteps& asi) { done.set_value(); });
+    asi.add([&](IAsyncSteps&) { done.set_value(); });
     asi.execute();
     done.get_future().wait();
 
@@ -559,7 +559,7 @@ BOOST_AUTO_TEST_CASE(loop_error) // NOLINT
                 auto& result = asi.state<V>("result");
                 result.push_back(1);
 
-                asi.setCancel([&](IAsyncSteps& asi) { done.set_value(); });
+                asi.setCancel([&](IAsyncSteps&) { done.set_value(); });
 
                 if (result.size() > 1) {
                     asi.breakLoop();
@@ -567,13 +567,13 @@ BOOST_AUTO_TEST_CASE(loop_error) // NOLINT
 
                 asi.forEach(
                         V{1, 2, 3, 4},
-                        [](IAsyncSteps& asi, size_t index, const int& val) {
+                        [](IAsyncSteps& asi, size_t, const int&) {
                             auto& result = asi.state<V>("result");
                             result.push_back(2);
 
                             asi.repeat(
                                     3,
-                                    [](IAsyncSteps& asi, size_t i) {
+                                    [](IAsyncSteps& asi, size_t) {
                                         auto& result = asi.state<V>("result");
                                         result.push_back(3);
 
@@ -606,23 +606,23 @@ BOOST_AUTO_TEST_CASE(loop_foreach_vector) // NOLINT
     asi.state()["cnt"] = 0;
 
     // Vector copy
-    asi.forEach(
-            std::vector<int>{1, 2, 3},
-            [](IAsyncSteps& asi, size_t i, int&) { asi.state<int>("cnt")++; });
+    asi.forEach(std::vector<int>{1, 2, 3}, [](IAsyncSteps& asi, size_t, int&) {
+        asi.state<int>("cnt")++;
+    });
 
     std::vector<int> vec{1, 2, 3};
 
     // Vector ref
-    asi.forEach(std::ref(vec), [](IAsyncSteps& asi, size_t i, int&) {
+    asi.forEach(std::ref(vec), [](IAsyncSteps& asi, size_t, int&) {
         asi.state<int>("cnt")++;
     });
 
     // Vector const ref
-    asi.forEach(std::cref(vec), [](IAsyncSteps& asi, size_t i, const int&) {
+    asi.forEach(std::cref(vec), [](IAsyncSteps& asi, size_t, const int&) {
         asi.state<int>("cnt")++;
     });
 
-    asi.add([&](IAsyncSteps& asi) { done.set_value(); });
+    asi.add([&](IAsyncSteps&) { done.set_value(); });
     asi.execute();
     done.get_future().wait();
 
@@ -641,21 +641,21 @@ BOOST_AUTO_TEST_CASE(loop_foreach_map) // NOLINT
     std::map<int, int> map{{1, 1}, {2, 2}, {3, 3}};
 
     // copy
-    asi.forEach(decltype(map)(map), [](IAsyncSteps& asi, int i, int&) {
+    asi.forEach(decltype(map)(map), [](IAsyncSteps& asi, int, int&) {
         asi.state<int>("cnt")++;
     });
 
     // ref
-    asi.forEach(std::ref(map), [](IAsyncSteps& asi, const int& i, int&) {
+    asi.forEach(std::ref(map), [](IAsyncSteps& asi, const int&, int&) {
         asi.state<int>("cnt")++;
     });
 
     // const ref
-    asi.forEach(std::cref(map), [](IAsyncSteps& asi, int i, const int&) {
+    asi.forEach(std::cref(map), [](IAsyncSteps& asi, int, const int&) {
         asi.state<int>("cnt")++;
     });
 
-    asi.add([&](IAsyncSteps& asi) { done.set_value(); });
+    asi.add([&](IAsyncSteps&) { done.set_value(); });
     asi.execute();
     done.get_future().wait();
 
@@ -678,7 +678,7 @@ BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
     std::promise<void> done;
     asi.state()["result"] = V();
 
-    auto& p = asi.parallel([&](IAsyncSteps& asi, ErrorCode err) {
+    auto& p = asi.parallel([&](IAsyncSteps&, ErrorCode err) {
         std::cout << err << std::endl;
         BOOST_CHECK(false);
         done.set_value();
@@ -705,7 +705,7 @@ BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
         asi.state<V>("result").push_back(40 + i);
     });
 
-    asi.add([&](IAsyncSteps& asi) { done.set_value(); });
+    asi.add([&](IAsyncSteps&) { done.set_value(); });
     asi.execute();
 
     done.get_future().wait();
@@ -766,7 +766,7 @@ BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
         });
     });
 
-    asi.add([&](IAsyncSteps& asi) { done.set_value(); });
+    asi.add([&](IAsyncSteps&) { done.set_value(); });
     asi.execute();
 
     done.get_future().wait();
@@ -817,7 +817,7 @@ BOOST_AUTO_TEST_CASE(error_outer) // NOLINT
         asi.state<V>("result").push_back(40 + i);
     });
 
-    asi.add([&](IAsyncSteps& asi) { done.set_value(); });
+    asi.add([&](IAsyncSteps&) { done.set_value(); });
     asi.execute();
 
     done.get_future().wait();
@@ -848,10 +848,10 @@ BOOST_AUTO_TEST_CASE(promise_void) // NOLINT
 
         asi.add([&](IAsyncSteps&) { count.fetch_add(1); });
     });
-    asi.add([&](IAsyncSteps& asi) { count.fetch_add(1); });
+    asi.add([&](IAsyncSteps&) { count.fetch_add(1); });
 
     asi.promise().wait();
-    BOOST_CHECK_EQUAL(count.load(), 3);
+    BOOST_CHECK_EQUAL(count.load(), 3U);
 }
 
 BOOST_AUTO_TEST_CASE(promise_res) // NOLINT
@@ -872,7 +872,7 @@ BOOST_AUTO_TEST_CASE(promise_res) // NOLINT
     });
 
     BOOST_CHECK_EQUAL(asi.promise<int>().get(), 123);
-    BOOST_CHECK_EQUAL(count.load(), 3);
+    BOOST_CHECK_EQUAL(count.load(), 3U);
 }
 
 BOOST_AUTO_TEST_CASE(promise_error) // NOLINT
@@ -896,7 +896,7 @@ BOOST_AUTO_TEST_CASE(promise_error) // NOLINT
     });
 
     BOOST_CHECK_THROW(asi.promise().get(), Error);
-    BOOST_CHECK_EQUAL(count.load(), 2);
+    BOOST_CHECK_EQUAL(count.load(), 2U);
 }
 
 BOOST_AUTO_TEST_CASE(await_void) // NOLINT
@@ -918,13 +918,13 @@ BOOST_AUTO_TEST_CASE(await_void) // NOLINT
     asi.execute();
 
     at.deferred(TEST_DELAY, [&]() {
-        BOOST_CHECK_EQUAL(count.load(), 1);
+        BOOST_CHECK_EQUAL(count.load(), 1U);
         ext.set_value();
     });
 
     std::promise<void> done;
     at.deferred(TEST_DELAY * 2, [&]() {
-        BOOST_CHECK_EQUAL(count.load(), 2);
+        BOOST_CHECK_EQUAL(count.load(), 2U);
         done.set_value();
     });
 
@@ -953,13 +953,13 @@ BOOST_AUTO_TEST_CASE(await_res) // NOLINT
     asi.execute();
 
     at.deferred(TEST_DELAY, [&]() {
-        BOOST_CHECK_EQUAL(count.load(), 1);
+        BOOST_CHECK_EQUAL(count.load(), 1U);
         ext.set_value(123);
     });
 
     std::promise<void> done;
     at.deferred(TEST_DELAY * 2, [&]() {
-        BOOST_CHECK_EQUAL(count.load(), 2);
+        BOOST_CHECK_EQUAL(count.load(), 2U);
         done.set_value();
     });
 
@@ -988,13 +988,13 @@ BOOST_AUTO_TEST_CASE(await_cancel) // NOLINT
     asi.execute();
 
     at.deferred(TEST_DELAY, [&]() {
-        BOOST_CHECK_EQUAL(count.load(), 1);
+        BOOST_CHECK_EQUAL(count.load(), 1U);
         asi.cancel();
     });
 
     std::promise<void> done;
     at.deferred(TEST_DELAY * 2, [&]() {
-        BOOST_CHECK_EQUAL(count.load(), 1);
+        BOOST_CHECK_EQUAL(count.load(), 1U);
         done.set_value();
     });
 
@@ -1026,15 +1026,15 @@ BOOST_AUTO_TEST_CASE(await_error) // NOLINT
                 count.fetch_add(5);
                 asi();
             });
-    asi.add([&](IAsyncSteps& asi) {
-        BOOST_CHECK_EQUAL(count.load(), 6);
+    asi.add([&](IAsyncSteps&) {
+        BOOST_CHECK_EQUAL(count.load(), 6U);
         done.set_value();
     });
 
     asi.execute();
 
     at.deferred(TEST_DELAY, [&]() {
-        BOOST_CHECK_EQUAL(count.load(), 1);
+        BOOST_CHECK_EQUAL(count.load(), 1U);
         ext.set_exception(std::make_exception_ptr(Error("MyError")));
     });
 
@@ -1320,7 +1320,7 @@ BOOST_AUTO_TEST_CASE(plain_outer_loop) // NOLINT
 
     volatile size_t count = 0;
 
-    asi.loop([&](IAsyncSteps& asi) { ++count; });
+    asi.loop([&](IAsyncSteps&) { ++count; });
 
     std::promise<void> done;
     at.deferred(std::chrono::milliseconds(1000), [&]() {
@@ -1343,7 +1343,7 @@ BOOST_AUTO_TEST_CASE(plain_inner_loop) // NOLINT
     volatile size_t count = 0;
 
     asi.add([&](IAsyncSteps& asi) {
-        asi.loop([&](IAsyncSteps& asi) { ++count; });
+        asi.loop([&](IAsyncSteps&) { ++count; });
     });
 
     std::promise<void> done;
@@ -1368,9 +1368,9 @@ BOOST_AUTO_TEST_CASE(parallel_outer_loop) // NOLINT
 
     asi.loop([&](IAsyncSteps& asi) {
         auto& p = asi.parallel();
-        p.add([&](IAsyncSteps& asi) { ++count; });
-        p.add([&](IAsyncSteps& asi) { ++count; });
-        p.add([&](IAsyncSteps& asi) { ++count; });
+        p.add([&](IAsyncSteps&) { ++count; });
+        p.add([&](IAsyncSteps&) { ++count; });
+        p.add([&](IAsyncSteps&) { ++count; });
     });
 
     std::promise<void> done;
@@ -1399,8 +1399,8 @@ BOOST_AUTO_TEST_CASE(double_outer_loop) // NOLINT
     volatile size_t count1 = 0;
     volatile size_t count2 = 0;
 
-    refs.as1.loop([&](IAsyncSteps& asi) { ++count1; });
-    refs.as2.loop([&](IAsyncSteps& asi) { ++count2; });
+    refs.as1.loop([&](IAsyncSteps&) { ++count1; });
+    refs.as2.loop([&](IAsyncSteps&) { ++count2; });
 
     std::promise<void> done;
     refs.at1.deferred(std::chrono::milliseconds(1000), [&]() {

@@ -52,12 +52,14 @@ find_package(Threads REQUIRED)
 add_library(${PROJECT_NAME} ${FUTOIN_ASYNCSTEPS_SRC})
 add_library(futoin::asyncsteps ALIAS ${PROJECT_NAME})
 
-target_link_libraries(${PROJECT_NAME} PUBLIC futoin::api Threads::Threads)
+target_link_libraries(${PROJECT_NAME}
+    PUBLIC futoin::api Boost::boost
+    PRIVATE Threads::Threads)
 
 target_include_directories(${PROJECT_NAME}
     PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include
-    PRIVATE Boost::boost
 )
+
 # since CMake 3.8
 #target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_11 )
 set_target_properties(${PROJECT_NAME} PROPERTIES
@@ -85,38 +87,28 @@ if (FUTOIN_WITH_TESTS)
     enable_testing()
 
     #---
-    add_executable(RIAsyncStepsTest
-        tests/asynctool.test.cpp
-        tests/asyncsteps.test.cpp
-        tests/sync.test.cpp
-        tests/main.test.cpp
+    set(PROJECT_TEST_NAME RIAsyncStepsTest)
+    file(GLOB_RECURSE PROJECT_TEST_SRC
+        ${CMAKE_CURRENT_LIST_DIR}/tests/*.test.?pp
     )
+    add_executable(${PROJECT_TEST_NAME} ${PROJECT_TEST_SRC})
 
-    target_link_libraries(RIAsyncStepsTest
+    target_link_libraries(${PROJECT_TEST_NAME}
         PRIVATE ${PROJECT_NAME} Boost::unit_test_framework)
 
     if (FALSE)
         find_library(LIB_PERFTOOLS libtcmalloc.so.4)
-        target_link_libraries(RIAsyncStepsTest
+        target_link_libraries(${PROJECT_TEST_NAME}
             PRIVATE ${LIB_PERFTOOLS})
     endif()
 
-    add_test(RIAsyncSteps RIAsyncStepsTest)
+    add_test(RIAsyncSteps ${PROJECT_TEST_NAME})
 endif()
 
 #--------------------------------------
 # Static analysis & formatting
 #--------------------------------------
-if (FUTOIN_WITH_TESTS)
-    file(GLOB_RECURSE ALL_SRC_FILES
-        ${CMAKE_CURRENT_LIST_DIR}/include/*.?pp
-        ${CMAKE_CURRENT_LIST_DIR}/src/*.?pp
-        ${CMAKE_CURRENT_LIST_DIR}/tests/*.cpp
-    )
-    set(LINT_SRC_FILES ${ALL_SRC_FILES})
-    
-    get_target_property(BOOST_INC_DIRS "Boost::boost" INTERFACE_INCLUDE_DIRECTORIES)
-    
+if (FUTOIN_WITH_TESTS)    
     #---
     add_custom_target(
         clangtidy-${PROJECT_NAME} ALL
@@ -125,11 +117,13 @@ if (FUTOIN_WITH_TESTS)
         -warnings-as-errors=*
         -quiet
         -format-style=file
-        ${LINT_SRC_FILES}
+        -header-filter=${CMAKE_CURRENT_LIST_DIR}/include
+        `echo
+        $<JOIN:$<TARGET_PROPERTY:${PROJECT_NAME},SOURCES>,\ >
+        $<JOIN:$<TARGET_PROPERTY:${PROJECT_TEST_NAME},SOURCES>,\ >
         --
-        -std=c++11
-        -I${CMAKE_CURRENT_LIST_DIR}/include/
-        -I${CMAKE_CURRENT_LIST_DIR}/../core-cpp-api/include/
+        $<JOIN:$<TARGET_PROPERTY:${PROJECT_NAME},COMPILE_OPTIONS>,\ >
+        -I$<JOIN:$<TARGET_PROPERTY:${PROJECT_NAME},INCLUDE_DIRECTORIES>,\ -I>`
     )
     
     add_custom_target(
@@ -137,7 +131,9 @@ if (FUTOIN_WITH_TESTS)
         COMMAND /usr/bin/clang-format-6.0
         -style=file
         -i
-        ${ALL_SRC_FILES}
+        `echo
+        $<JOIN:$<TARGET_PROPERTY:${PROJECT_NAME},SOURCES>,\ >
+        $<JOIN:$<TARGET_PROPERTY:${PROJECT_TEST_NAME},SOURCES>,\ >`
     )
 endif()
 
