@@ -1,5 +1,5 @@
 
-=== (next) ===
+=== 1.2.0 (2018-09-17) ===
 CHANGED: to use futoin::FatalMsg for critical errors
 CHANGED: refactoring for better clang-tidy support
 NEW: FTN12 v1.13 AsyncSteps::stack() API
