@@ -1062,47 +1062,49 @@ size_t AllocObject::del_count;
 
 BOOST_AUTO_TEST_CASE(stack_alloc) // NOLINT
 {
-    ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    {
+        ri::AsyncTool at;
+        ri::AsyncSteps asi(at);
 
-    AllocObject::new_count = 0;
-    AllocObject::del_count = 0;
+        AllocObject::new_count = 0;
+        AllocObject::del_count = 0;
 
-    auto& ref = asi.stack<AllocObject>();
-    (void) ref;
-    BOOST_CHECK_EQUAL(AllocObject::new_count, 1U);
-    BOOST_CHECK_EQUAL(AllocObject::del_count, 0U);
+        auto& ref = asi.stack<AllocObject>();
+        (void) ref;
+        BOOST_CHECK_EQUAL(AllocObject::new_count, 1U);
+        BOOST_CHECK_EQUAL(AllocObject::del_count, 0U);
 
-    asi.add(
-            [&](IAsyncSteps& asi) {
-                BOOST_CHECK_EQUAL(AllocObject::new_count, 1U);
-                BOOST_CHECK_EQUAL(AllocObject::del_count, 0U);
-
-                asi.stack<AllocObject>();
-                asi.stack<AllocObject>();
-
-                asi.add([&](IAsyncSteps&) {
-                    BOOST_CHECK_EQUAL(AllocObject::new_count, 3U);
+        asi.add(
+                [&](IAsyncSteps& asi) {
+                    BOOST_CHECK_EQUAL(AllocObject::new_count, 1U);
                     BOOST_CHECK_EQUAL(AllocObject::del_count, 0U);
 
                     asi.stack<AllocObject>();
+                    asi.stack<AllocObject>();
 
+                    asi.add([&](IAsyncSteps& asi) {
+                        BOOST_CHECK_EQUAL(AllocObject::new_count, 3U);
+                        BOOST_CHECK_EQUAL(AllocObject::del_count, 0U);
+
+                        asi.stack<AllocObject>();
+
+                        BOOST_CHECK_EQUAL(AllocObject::new_count, 4U);
+
+                        asi.error("Test");
+                    });
+                },
+                [&](IAsyncSteps& asi, ErrorCode) {
                     BOOST_CHECK_EQUAL(AllocObject::new_count, 4U);
-
-                    asi.error("Test");
+                    BOOST_CHECK_EQUAL(AllocObject::del_count, 1U);
+                    asi();
                 });
-            },
-            [&](IAsyncSteps& asi, ErrorCode) {
-                BOOST_CHECK_EQUAL(AllocObject::new_count, 4U);
-                BOOST_CHECK_EQUAL(AllocObject::del_count, 1U);
-                asi();
-            });
-    asi.add([&](IAsyncSteps&) {
-        BOOST_CHECK_EQUAL(AllocObject::new_count, 4U);
-        BOOST_CHECK_EQUAL(AllocObject::del_count, 3U);
-    });
+        asi.add([&](IAsyncSteps&) {
+            BOOST_CHECK_EQUAL(AllocObject::new_count, 4U);
+            BOOST_CHECK_EQUAL(AllocObject::del_count, 3U);
+        });
 
-    asi.promise().wait();
+        asi.promise().wait();
+    }
 
     BOOST_CHECK_EQUAL(AllocObject::new_count, 4U);
     BOOST_CHECK_EQUAL(AllocObject::del_count, 4U);
