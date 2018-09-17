@@ -697,7 +697,7 @@ BOOST_AUTO_TEST_CASE(mutex_performance) // NOLINT
     struct
     {
         ri::AsyncTool at;
-        ri::ThreadlessMutex mtx;
+        std::unique_ptr<ri::ThreadlessMutex> mtx;
         ri::AsyncSteps as1{at};
         ri::AsyncSteps as2{at};
         ri::AsyncSteps as3{at};
@@ -705,10 +705,11 @@ BOOST_AUTO_TEST_CASE(mutex_performance) // NOLINT
     } refs;
 
     auto f = [&](IAsyncSteps& asi) {
-        asi.sync(refs.mtx, [&](IAsyncSteps&) { ++(refs.count); });
+        asi.sync(*(refs.mtx), [&](IAsyncSteps&) { ++(refs.count); });
     };
 
     refs.at.immediate([&]() {
+        refs.mtx.reset(new ri::ThreadlessMutex());
         refs.as1.loop(f);
         refs.as2.loop(f);
         refs.as3.loop(f);
@@ -730,7 +731,7 @@ BOOST_AUTO_TEST_CASE(mutex_performance) // NOLINT
     done.get_future().wait();
 
     std::cout << "Mutex count: " << refs.count << std::endl;
-    BOOST_CHECK_GT(refs.count, 1e5);
+    BOOST_CHECK_GT(refs.count, 1e4);
 }
 
 BOOST_AUTO_TEST_CASE(throttle_performance) // NOLINT
@@ -738,18 +739,19 @@ BOOST_AUTO_TEST_CASE(throttle_performance) // NOLINT
     struct
     {
         ri::AsyncTool at;
-        ri::ThreadlessThrottle thr{
-                at,
-                std::numeric_limits<ri::ThreadlessThrottle::size_type>::max()};
+        std::unique_ptr<ri::ThreadlessThrottle> thr;
         ri::AsyncSteps as1{at};
         std::size_t count{0};
     } refs;
 
     auto f = [&](IAsyncSteps& asi) {
-        asi.sync(refs.thr, [&](IAsyncSteps&) { ++(refs.count); });
+        asi.sync(*(refs.thr), [&](IAsyncSteps&) { ++(refs.count); });
     };
 
     refs.at.immediate([&]() {
+        refs.thr.reset(new ri::ThreadlessThrottle(
+                refs.at,
+                std::numeric_limits<ri::ThreadlessThrottle::size_type>::max()));
         refs.as1.loop(f);
         refs.as1.execute();
     });
@@ -784,7 +786,7 @@ BOOST_AUTO_TEST_CASE(stress) // NOLINT
     struct
     {
         ri::AsyncTool at;
-        ri::ThreadlessLimiter thr{at, TestLimiterParams()};
+        std::unique_ptr<ri::ThreadlessLimiter> lmtr;
         std::list<ri::AsyncSteps> steps;
         std::size_t count{0};
         std::size_t limit_count{0};
@@ -794,8 +796,8 @@ BOOST_AUTO_TEST_CASE(stress) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.add(
                 [&](IAsyncSteps& asi) {
-                    asi.sync(refs.thr, [&](IAsyncSteps& asi) {
-                        asi.sync(refs.thr, [&](IAsyncSteps&) {
+                    asi.sync(*(refs.lmtr), [&](IAsyncSteps& asi) {
+                        asi.sync(*(refs.lmtr), [&](IAsyncSteps&) {
                             ++(refs.count);
                         });
                     });
@@ -809,6 +811,9 @@ BOOST_AUTO_TEST_CASE(stress) // NOLINT
     };
 
     refs.at.immediate([&]() {
+        refs.lmtr.reset(
+                new ri::ThreadlessLimiter(refs.at, TestLimiterParams()));
+
         for (size_t i = 1000; i > 0; --i) {
             refs.steps.emplace_back(refs.at);
             auto& asi = refs.steps.back();

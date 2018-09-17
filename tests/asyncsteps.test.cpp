@@ -1425,19 +1425,19 @@ BOOST_AUTO_TEST_CASE(double_outer_loop_nomutex) // NOLINT
     auto f = [](size_t& count) {
         ri::AsyncTool::Params prm;
         prm.mempool_mutex = false;
-        ri::AsyncTool at{prm};
+        ri::AsyncTool at{[]() {}, prm};
+
+        GlobalMemPool::set_thread_default(at.mem_pool());
+
         ri::AsyncSteps asi{at};
 
         std::promise<void> done;
-        at.deferred(std::chrono::milliseconds(1000), [&]() {
-            asi.cancel();
-            done.set_value();
-        });
+        at.deferred(std::chrono::milliseconds(1000), [&]() { asi.cancel(); });
 
         asi.loop([&](IAsyncSteps&) { ++count; });
         asi.execute();
-
-        done.get_future().wait();
+        while (at.iterate().have_work) {
+        }
     };
 
     size_t count1 = 0;
