@@ -2,6 +2,7 @@
 === (next) ===
 CHANGED: to use futoin::FatalMsg for critical errors
 CHANGED: refactoring for better clang-tidy support
+NEW: FTN12 v1.13 AsyncSteps::stack() API
 
 === 1.1.0 (2018-09-08) ===
 CHANGED: major boost for immediates-only processing

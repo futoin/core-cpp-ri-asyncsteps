@@ -1041,6 +1041,73 @@ BOOST_AUTO_TEST_CASE(await_error) // NOLINT
     done.get_future().wait();
 }
 
+struct AllocObject
+{
+    AllocObject()
+    {
+        ++new_count;
+    }
+
+    ~AllocObject()
+    {
+        ++del_count;
+    }
+
+    static size_t new_count;
+    static size_t del_count;
+};
+
+size_t AllocObject::new_count;
+size_t AllocObject::del_count;
+
+BOOST_AUTO_TEST_CASE(stack_alloc) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::AsyncSteps asi(at);
+
+    AllocObject::new_count = 0;
+    AllocObject::del_count = 0;
+
+    auto& ref = asi.stack<AllocObject>();
+    (void) ref;
+    BOOST_CHECK_EQUAL(AllocObject::new_count, 1U);
+    BOOST_CHECK_EQUAL(AllocObject::del_count, 0U);
+
+    asi.add(
+            [&](IAsyncSteps& asi) {
+                BOOST_CHECK_EQUAL(AllocObject::new_count, 1U);
+                BOOST_CHECK_EQUAL(AllocObject::del_count, 0U);
+
+                asi.stack<AllocObject>();
+                asi.stack<AllocObject>();
+
+                asi.add([&](IAsyncSteps&) {
+                    BOOST_CHECK_EQUAL(AllocObject::new_count, 3U);
+                    BOOST_CHECK_EQUAL(AllocObject::del_count, 0U);
+
+                    asi.stack<AllocObject>();
+
+                    BOOST_CHECK_EQUAL(AllocObject::new_count, 4U);
+
+                    asi.error("Test");
+                });
+            },
+            [&](IAsyncSteps& asi, ErrorCode) {
+                BOOST_CHECK_EQUAL(AllocObject::new_count, 4U);
+                BOOST_CHECK_EQUAL(AllocObject::del_count, 1U);
+                asi();
+            });
+    asi.add([&](IAsyncSteps&) {
+        BOOST_CHECK_EQUAL(AllocObject::new_count, 4U);
+        BOOST_CHECK_EQUAL(AllocObject::del_count, 3U);
+    });
+
+    asi.promise().wait();
+
+    BOOST_CHECK_EQUAL(AllocObject::new_count, 4U);
+    BOOST_CHECK_EQUAL(AllocObject::del_count, 4U);
+}
+
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
 
 //=============================================================================

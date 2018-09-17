@@ -55,7 +55,11 @@ namespace futoin {
             std::unique_ptr<IAsyncSteps> newInstance() noexcept final;
             SyncRootID sync_root_id() const final;
             asyncsteps::State& state() noexcept final;
+            void* stack(
+                    std::size_t object_size,
+                    StackDestroyHandler destroy_cb) noexcept final;
 
+            using IAsyncSteps::stack;
             using IAsyncSteps::state;
 
         protected:

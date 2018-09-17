@@ -25,6 +25,8 @@
 #include <iostream>
 #include <list>
 #include <memory>
+#include <tuple>
+#include <vector>
 
 namespace futoin {
     namespace ri {
@@ -41,6 +43,14 @@ namespace futoin {
             if (extra_error != nullptr) {
                 m.stream() << std::endl << extra_error;
             }
+        }
+
+        //---
+        template<typename T>
+        static inline void assert_not_max(T& t)
+        {
+            assert(t != std::numeric_limits<T>::max());
+            (void) t;
         }
 
         //---
@@ -145,6 +155,7 @@ namespace futoin {
             IAsyncTool::Handle limit_handle_;
             std::size_t sub_queue_start{0};
             std::size_t sub_queue_front{0};
+            std::uint16_t stack_allocs_count{0};
         };
 
         //---
@@ -157,6 +168,7 @@ namespace futoin {
 
             using QueueItem = ProtectorDataHolder;
             using Queue = std::deque<QueueItem, IMemPool::Allocator<QueueItem>>;
+            using StackAlloc = std::tuple<void*, StackDestroyHandler, size_t>;
 
             Impl(State& state,
                  IAsyncTool& async_tool,
@@ -167,6 +179,13 @@ namespace futoin {
                 state_(state),
                 ext_data_allocator(mem_pool)
             {}
+
+            ~Impl() noexcept
+            {
+                if (!stack_allocs_.empty()) {
+                    stack_dealloc(stack_allocs_.size());
+                }
+            }
 
             void sanity_check() noexcept
             {
@@ -244,14 +263,39 @@ namespace futoin {
                 queue_.clear();
             }
 
+            void* stack_alloc(
+                    std::size_t object_size, StackDestroyHandler destroy_cb)
+            {
+                auto ptr = mem_pool_.allocate(object_size, 1);
+                stack_allocs_.emplace_back(ptr, destroy_cb, object_size);
+                return ptr;
+            }
+
+            void stack_dealloc(std::size_t count)
+            {
+                for (auto i = count; i > 0; --i) {
+                    void* ptr;
+                    StackDestroyHandler destroy_cb;
+                    std::size_t object_size;
+
+                    std::tie(ptr, destroy_cb, object_size) =
+                            stack_allocs_.back();
+                    destroy_cb(ptr);
+                    mem_pool_.deallocate(ptr, object_size, 1);
+                    stack_allocs_.pop_back();
+                }
+            }
+
             IAsyncTool& async_tool_;
             IMemPool& mem_pool_;
+            std::vector<StackAlloc, IMemPool::Allocator<StackAlloc>>
+                    stack_allocs_;
             NextArgs next_args_;
             Queue queue_;
             ProtectorData* stack_top_{nullptr};
             IAsyncTool::Handle exec_handle_;
             State& state_;
-            bool in_exec_ = false;
+            bool in_exec_{false};
 
             IMemPool::Allocator<ExtStepState> ext_data_allocator;
         };
@@ -487,6 +531,15 @@ namespace futoin {
                     ext.continue_loop = true;
                 }
             }
+
+            void* stack(
+                    std::size_t object_size,
+                    StackDestroyHandler destroy_cb) noexcept final
+            {
+                ++stack_allocs_count;
+                assert_not_max(stack_allocs_count);
+                return root_->impl_->stack_alloc(object_size, destroy_cb);
+            }
         };
 
         //---
@@ -669,6 +722,10 @@ namespace futoin {
                 ext_data_ = nullptr;
             }
 
+            if (stack_allocs_count > 0) {
+                root_->impl_->stack_dealloc(stack_allocs_count);
+            }
+
             root_ = nullptr;
         }
 
@@ -814,6 +871,13 @@ namespace futoin {
         {
             return std::unique_ptr<IAsyncSteps>(
                     new ri::AsyncSteps(impl_->async_tool_));
+        }
+
+        void* BaseAsyncSteps::stack(
+                std::size_t object_size,
+                StackDestroyHandler destroy_cb) noexcept
+        {
+            return impl_->stack_alloc(object_size, destroy_cb);
         }
 
         //---

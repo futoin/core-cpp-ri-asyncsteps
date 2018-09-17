@@ -834,7 +834,7 @@ BOOST_AUTO_TEST_CASE(stress) // NOLINT
 
     std::cout << "Stress count: " << refs.count << std::endl;
     std::cout << "Limit count: " << refs.limit_count << std::endl;
-    BOOST_CHECK_GT(refs.count, 1e4);
+    BOOST_CHECK_GT(refs.count, 1e3);
 }
 
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
