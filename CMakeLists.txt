@@ -103,6 +103,8 @@ if (FUTOIN_WITH_TESTS)
     endif()
 
     add_test(RIAsyncSteps ${PROJECT_TEST_NAME})
+    
+    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/bench)
 endif()
 
 #--------------------------------------

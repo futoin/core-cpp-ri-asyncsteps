@@ -1,6 +1,7 @@
 
 === (next) ===
 FIXED: boost memory pool epic performance issues with ordered_free()
+NEW: added benchmarks for comparison
 
 === 1.2.0 (2018-09-17) ===
 CHANGED: to use futoin::FatalMsg for critical errors
