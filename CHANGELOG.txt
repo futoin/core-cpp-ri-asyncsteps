@@ -1,4 +1,7 @@
 
+=== (next) ===
+FIXED: boost memory pool epic performance issues with ordered_free()
+
 === 1.2.0 (2018-09-17) ===
 CHANGED: to use futoin::FatalMsg for critical errors
 CHANGED: refactoring for better clang-tidy support

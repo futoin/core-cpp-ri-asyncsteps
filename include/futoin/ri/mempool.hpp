@@ -52,6 +52,11 @@ namespace futoin {
                 }
 
                 std::lock_guard<Mutex> lock(mutex);
+
+                if (count == 1) {
+                    return pool.ordered_malloc();
+                }
+
                 return pool.ordered_malloc(count);
             }
 
@@ -61,7 +66,12 @@ namespace futoin {
                     size_t count) noexcept final
             {
                 std::lock_guard<Mutex> lock(mutex);
-                pool.ordered_free(ptr, count);
+
+                if (count == 1) {
+                    pool.free(ptr);
+                } else {
+                    pool.free(ptr, count);
+                }
             }
 
             void release_memory() noexcept final
