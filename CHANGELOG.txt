@@ -1,5 +1,5 @@
 
-=== (next) ===
+=== 1.2.1 (2018-09-20) ===
 FIXED: boost memory pool epic performance issues with ordered_free()
 NEW: added benchmarks for comparison
 

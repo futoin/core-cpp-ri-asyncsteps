@@ -1,6 +1,6 @@
 {
   "name": "futoin/core-cpp-ri-asyncsteps",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "vcs": "git",
   "plugins": {
     "release": "futoin.cid.misc.releasetool"
