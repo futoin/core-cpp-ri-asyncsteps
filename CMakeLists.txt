@@ -92,6 +92,16 @@ if (FUTOIN_WITH_TESTS)
         ${CMAKE_CURRENT_LIST_DIR}/tests/*.test.?pp
     )
     add_executable(${PROJECT_TEST_NAME} ${PROJECT_TEST_SRC})
+    
+    if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_COMPILER_IS_CLANG)
+        target_compile_options(${PROJECT_TEST_NAME} PRIVATE
+            # see target_compile_features
+            -std=c++11
+            -Wall
+            -Wextra
+            -Werror
+        )
+    endif()
 
     target_link_libraries(${PROJECT_TEST_NAME}
         PRIVATE ${PROJECT_NAME} Boost::unit_test_framework)

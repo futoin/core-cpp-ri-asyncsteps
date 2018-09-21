@@ -161,10 +161,9 @@ namespace futoin {
         //---
         struct BaseAsyncSteps::Impl
         {
-            struct ProtectorDataHolder
-            {
-                alignas(ProtectorData) char data[sizeof(ProtectorData)];
-            };
+            using ProtectorDataHolder = std::aligned_storage<
+                    sizeof(ProtectorData),
+                    std::alignment_of<ProtectorData>::value>::type;
 
             using QueueItem = ProtectorDataHolder;
             using Queue = std::deque<QueueItem, IMemPool::Allocator<QueueItem>>;
@@ -1066,9 +1065,7 @@ namespace futoin {
             if (state_.unhandled_error) {
                 state_.unhandled_error(code);
             } else {
-                std::cout << "FATAL: unhandled AsyncStep error " << code
-                          << std::endl;
-                std::terminate();
+                FatalMsg() << "unhandled AsyncStep error " << code;
             }
         }
 
