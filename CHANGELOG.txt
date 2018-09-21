@@ -1,5 +1,6 @@
 
 === (next) ===
+FIXED: possible timeout handling issues under rare circumstances
 CHANGED: improved AsyncSteps::loop implementation to avoid implicit step creation
 
 === 1.2.1 (2018-09-20) ===

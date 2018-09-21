@@ -447,10 +447,7 @@ namespace futoin {
             // operator() is hidden)
             void operator()() noexcept
             {
-                try {
-                    this->error(errors::Timeout);
-                } catch (...) {
-                }
+                handle_error(errors::Timeout);
             }
 
             StepData& add_sync(ISync& obj) noexcept override
@@ -959,6 +956,10 @@ namespace futoin {
                 on_invalid_call("success() with sub-steps");
             }
 
+            // Make sure it's canceled due to way
+            // how queue is managed.
+            current->limit_handle_.cancel();
+
             stack_top_ = stack_top_->parent_;
 
             while (stack_top_ != nullptr) {
@@ -998,9 +999,7 @@ namespace futoin {
             }
 
             if (exec_handle_) {
-                // Out-of-sequence error
-                handle_cancel();
-                return;
+                exec_handle_.cancel();
             }
 
             if (in_exec_) {
