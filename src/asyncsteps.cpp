@@ -421,16 +421,14 @@ namespace futoin {
                 return step->alloc_ext_data(true);
             }
 
-            static void loop_handler(IAsyncSteps& asi) noexcept
+            static void loop_handler(IAsyncSteps& asi)
             {
                 auto& that = static_cast<Protector&>(asi);
                 auto& ls = *(that.ext_data_);
 
-                auto buf = that.root_->impl_->alloc_step();
-                auto step = new (buf) Protector(*(that.root_), &that);
-
-                step->data_.func_ = std::ref(ls);
-                step->data_.on_error_ = std::ref(ls);
+                // NOTE: need to restore after errors iteration
+                that.data_.on_error_ = std::ref(ls);
+                ls(asi);
             }
 
             std::unique_ptr<IAsyncSteps> newInstance() noexcept override
