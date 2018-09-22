@@ -44,7 +44,7 @@ BOOST_AUTO_TEST_CASE(add_success) // NOLINT
     std::atomic_size_t count{0};
 
     asi.add([&](IAsyncSteps& asi) {
-        //BOOST_CHECK(!root);
+        // BOOST_CHECK(!root);
         BOOST_CHECK(root); // nitro-specific
         ++count;
         BOOST_CHECK(asi);
@@ -95,7 +95,7 @@ BOOST_AUTO_TEST_CASE(inner_add_success) // NOLINT
     asi.add([&](IAsyncSteps& asi) {
         BOOST_TEST_CHECKPOINT("outer");
         ++count;
-        
+
         asi.add([&](IAsyncSteps&) {
             BOOST_TEST_CHECKPOINT("inner 2");
             ++count;
@@ -483,12 +483,9 @@ BOOST_AUTO_TEST_CASE(loop_break) // NOLINT
     done.get_future().wait();
 
     V required{1, 2, 3, 3, 2, 3, 3};
-    auto &result = asi.state<V>("result");
+    auto& result = asi.state<V>("result");
     BOOST_CHECK_EQUAL_COLLECTIONS(
-            result.begin(),
-            result.end(),
-            required.begin(),
-            required.end());
+            result.begin(), result.end(), required.begin(), required.end());
 }
 
 BOOST_AUTO_TEST_CASE(loop_continue) // NOLINT
@@ -706,7 +703,7 @@ BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(31); });
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(32); });
     });
-    p.repeat(2, [](IAsyncSteps& asi, size_t i) {
+    p.repeat(3, [](IAsyncSteps& asi, size_t i) {
         asi.state<V>("result").push_back(40 + i);
     });
 
@@ -715,7 +712,7 @@ BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
 
     done.get_future().wait();
 
-    V required{1, 2, 3, 11, 21, 31, 40, 12, 22, 32, 41};
+    V required{1, 2, 3, 40, 11, 21, 31, 41, 12, 22, 32, 42};
     BOOST_CHECK_EQUAL_COLLECTIONS(
             asi.state<V>("result").begin(),
             asi.state<V>("result").end(),
@@ -766,7 +763,7 @@ BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
                 asi.state<V>("result").push_back(32);
             });
         });
-        p.repeat(2, [](IAsyncSteps& asi, size_t i) {
+        p.repeat(3, [](IAsyncSteps& asi, size_t i) {
             asi.state<V>("result").push_back(40 + i);
         });
     });
@@ -776,7 +773,7 @@ BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
 
     done.get_future().wait();
 
-    V required{0, 1, 2, 3, 11, 21, 31, 40, 12, 22, 32, 41};
+    V required{0, 1, 2, 3, 40, 11, 21, 31, 41, 12, 22, 32, 42};
     BOOST_CHECK_EQUAL_COLLECTIONS(
             asi.state<V>("result").begin(),
             asi.state<V>("result").end(),
@@ -827,7 +824,7 @@ BOOST_AUTO_TEST_CASE(error_outer) // NOLINT
 
     done.get_future().wait();
 
-    V required{1, 2, 11, 21, 40, 12, 0};
+    V required{1, 2, 40, 11, 21, 41, 12, 0};
     BOOST_CHECK_EQUAL_COLLECTIONS(
             asi.state<V>("result").begin(),
             asi.state<V>("result").end(),

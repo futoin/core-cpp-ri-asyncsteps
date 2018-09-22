@@ -94,7 +94,7 @@ BOOST_AUTO_TEST_CASE(inner_add_success) // NOLINT
     asi.add([&](IAsyncSteps& asi) {
         BOOST_TEST_CHECKPOINT("outer");
         ++count;
-        
+
         asi.add([&](IAsyncSteps&) {
             BOOST_TEST_CHECKPOINT("inner 2");
             ++count;
