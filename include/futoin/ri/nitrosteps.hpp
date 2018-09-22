@@ -1,0 +1,911 @@
+//-----------------------------------------------------------------------------
+//   Copyright 2018 FutoIn Project
+//   Copyright 2018 Andrey Galkin
+//
+//   Licensed under the Apache License, Version 2.0 (the "License");
+//   you may not use this file except in compliance with the License.
+//   You may obtain a copy of the License at
+//
+//       http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//   See the License for the specific language governing permissions and
+//   limitations under the License.
+//-----------------------------------------------------------------------------
+//! @file
+//! @brief High Performing Implementation of AsyncSteps (FTN12) for C++
+//! @sa https://specs.futoin.org/final/preview/ftn12_async_api.html
+//-----------------------------------------------------------------------------
+
+#ifndef FUTOIN_RI_NITROSTEPS_HPP
+#define FUTOIN_RI_NITROSTEPS_HPP
+//---
+#include <futoin/fatalmsg.hpp>
+#include <futoin/iasyncsteps.hpp>
+//---
+#include <array>
+#include <cstdint>
+#include <cstring>
+#include <type_traits>
+
+namespace futoin {
+    namespace ri {
+        namespace nitro_details {
+            using namespace asyncsteps;
+            using StepIndex = std::uint8_t;
+
+            // Impl details
+            //-------------------------
+            struct NitroStepData : StepData
+            {
+                using FlagBase = std::uint8_t;
+                enum Flags : FlagBase
+                {
+                    HaveCancel = (1 << 0),
+                    HaveTimeout = (1 << 1),
+                    HaveWait = (1 << 2),
+                    HaveExtended = (1 << 3),
+                    RepeatStep = (1 << 4),
+                    SuccessBlock = (HaveCancel | HaveTimeout | HaveWait),
+                };
+
+                bool is_auto_success() noexcept
+                {
+                    return (flags & SuccessBlock) == 0;
+                }
+
+                void reset() noexcept
+                {
+                    flags = 0;
+                }
+
+                bool is_step_repeat() noexcept
+                {
+                    return is_set(RepeatStep);
+                }
+
+                bool has_time_limit() noexcept
+                {
+                    return is_set(HaveTimeout);
+                }
+
+                bool has_cancel() noexcept
+                {
+                    return is_set(HaveCancel);
+                }
+
+                bool has_extended() noexcept
+                {
+                    return is_set(HaveExtended);
+                }
+
+                void clear_resource_flags() noexcept
+                {
+                    clear_flags(SuccessBlock);
+                }
+
+                bool is_set(FlagBase on_flags)
+                {
+                    return (flags & on_flags) == on_flags;
+                }
+
+                void clear_flags(FlagBase off_flags)
+                {
+                    flags &= ~off_flags;
+                }
+
+                NitroStepData* parent{nullptr};
+                FlagBase flags{0};
+                StepIndex sub_queue_start{0};
+                StepIndex sub_queue_front{0};
+                StepIndex stack_allocs_count{0};
+            };
+
+            template<typename NS>
+            struct HandleExecuteBase
+            {
+                void operator()()
+                {
+                    static_cast<NS*>(this)->handle_execute();
+                }
+            };
+
+            template<typename NS>
+            struct HandleTimeoutBase
+            {
+                void operator()()
+                {
+                    static_cast<NS*>(this)->handle_timeout();
+                }
+            };
+
+            template<typename NS>
+            struct HandleLoopBase
+            {
+                // Actual add() -> func
+                void operator()(IAsyncSteps& asi)
+                {
+                    auto& ns = static_cast<NS&>(asi);
+                    auto step = ns.last_step_;
+                    auto& ext_state = ns.current_ext_state();
+                    auto& cond = ext_state.cond;
+
+                    if (!cond || cond(ext_state)) {
+                        step->flags |= NitroStepData::RepeatStep;
+                        step->on_error_ = std::ref(*this);
+                        ext_state.handler(ext_state, asi);
+                    } else {
+                        step->clear_flags(NitroStepData::RepeatStep);
+                    }
+                }
+
+                // Actual add() -> on_error
+                void operator()(IAsyncSteps& asi, ErrorCode err)
+                {
+                    auto& ns = static_cast<NS&>(asi);
+                    auto step = ns.last_step_;
+                    auto& ext_state = ns.current_ext_state();
+
+                    if (err == errors::LoopCont) {
+                        auto error_label = asi.state().error_loop_label;
+
+                        if ((error_label == nullptr)
+                            || (strcmp(error_label, ext_state.label) == 0)) {
+                            asi.success();
+                        }
+                    } else if (err == errors::LoopBreak) {
+                        auto error_label = asi.state().error_loop_label;
+
+                        if ((error_label == nullptr)
+                            || (strcmp(error_label, ext_state.label) == 0)) {
+                            step->clear_flags(NitroStepData::RepeatStep);
+                            asi.success();
+                        }
+                    } else {
+                        step->clear_flags(NitroStepData::RepeatStep);
+                    }
+                }
+            };
+
+            template<typename NS>
+            struct HandleSyncBase
+            {
+                void operator()(IAsyncSteps& asi)
+                {
+                    auto& ns = static_cast<NS&>(asi);
+                    auto& ext_state = ns.current_ext_state();
+
+                    asi.setCancel(&HandleSyncBase::sync_unlock_handler);
+
+                    asi.add(&HandleSyncBase::sync_lock_handler);
+
+                    auto& data = ns.add_step();
+                    auto& sync_data = ext_state.sync_data;
+                    data.func_ = std::move(sync_data.func_);
+                    data.on_error_ = std::move(sync_data.on_error_);
+
+                    asi.add(&HandleSyncBase::sync_unlock_handler);
+                }
+
+                static void sync_unlock_handler(IAsyncSteps& asi)
+                {
+                    auto& ns = static_cast<NS&>(asi);
+                    auto& ext_state = ns.current_ext_state();
+
+                    ext_state.sync_object->unlock(asi);
+                }
+
+                static void sync_lock_handler(IAsyncSteps& asi)
+                {
+                    auto& ns = static_cast<NS&>(asi);
+                    auto& ext_state = ns.current_ext_state();
+
+                    ext_state.sync_object->lock(asi);
+                }
+            };
+
+            template<typename NS>
+            struct HandleBases : HandleExecuteBase<NS>,
+                                 HandleTimeoutBase<NS>,
+                                 HandleLoopBase<NS>,
+                                 HandleSyncBase<NS>
+            {
+                using HandleExecute = HandleExecuteBase<NS>;
+                using HandleTimeout = HandleTimeoutBase<NS>;
+                using HandleLoop = HandleLoopBase<NS>;
+                using HandleSync = HandleSyncBase<NS>;
+            };
+
+            // Impl details
+            //-------------------------
+            template<bool is_root = true>
+            struct StateBase
+            {
+                template<typename NS>
+                struct Impl
+                {
+                    Impl(NS& /*ns*/, IAsyncTool& async_tool) noexcept :
+                        state_(async_tool.mem_pool())
+                    {}
+
+                    State& get_state() noexcept
+                    {
+                        return state_;
+                    }
+
+                    State state_;
+                };
+            };
+
+            template<>
+            struct StateBase<false>
+            {
+                template<typename NS>
+                struct Impl
+                {
+                    Impl(NS& ns, IAsyncTool& /*async_tool*/) noexcept :
+                        root_(&ns)
+                    {}
+
+                    State& get_state() noexcept
+                    {
+                        return root_->impl.get_state();
+                    }
+
+                    NS* root_;
+                };
+            };
+
+            // Parameters
+            //-------------------------
+            template<bool is_root>
+            struct IsRoot
+            {
+                template<typename Base>
+                struct Override : Base {
+                    template<typename NS>
+                    using Impl = typename StateBase<is_root>::template Impl<NS>;
+                };
+            };
+
+            template<StepIndex max_steps>
+            struct MaxSteps
+            {
+                template<typename Base>
+                struct Override : Base {
+                    using Queue = std::array<NitroStepData, max_steps>;
+                    static constexpr StepIndex MAX_STEPS = max_steps;
+                };
+            };
+
+            template<StepIndex max_timeouts>
+            struct MaxTimeouts
+            {
+                template<typename Base>
+                struct Override : Base {
+                    using TimeoutList =
+                            std::array<IAsyncTool::Handle, max_timeouts>;
+                    static constexpr auto MAX_TIMEOUTS = max_timeouts;
+                };
+            };
+
+            template<StepIndex max_cancels>
+            struct MaxCancels
+            {
+                template<typename Base>
+                struct Override : Base {
+                    struct CancelCallbackHolder
+                    {
+                        CancelPass::Storage storage;
+                        CancelCallback func;
+                    };
+
+                    using CancelList =
+                            std::array<CancelCallbackHolder, max_cancels>;
+                    static constexpr auto MAX_TIMEOUTS = max_cancels;
+                };
+            };
+
+            template<StepIndex max_extended>
+            struct MaxExtended
+            {
+                template<typename Base>
+                struct Override : Base {
+                    struct ExtendedState : LoopState
+                    {
+                        // Sync step stuff
+                        //--------------------
+                        ISync* sync_object{nullptr};
+                        StepData sync_data;
+                    };
+
+                    using ExtendedList = std::array<ExtendedState, max_extended>;
+                    static constexpr auto MAX_EXTENDED = max_extended;
+                };
+            };
+
+            template<StepIndex max_size>
+            struct ErrorCodeMaxSize
+            {
+                template<typename Base>
+                struct Override : Base {
+                    using ErrorCodeCache = char[max_size + 1];
+                };
+            };
+            
+            // Yes, there is Boost.Parameter...
+            //-------------------------
+            
+            struct DefaultNoop {};
+            
+            struct DefaultValues :
+                IsRoot<true>::Override<DefaultNoop>,
+                MaxSteps<16>::Override<DefaultNoop>,
+                MaxTimeouts<4>::Override<DefaultNoop>,
+                MaxCancels<4>::Override<DefaultNoop>,
+                MaxExtended<4>::Override<DefaultNoop>,
+                ErrorCodeMaxSize<32>::Override<DefaultNoop>
+            {};
+
+            template<typename T, typename... Params>
+            struct DefaultTraits :
+                T::template Override<DefaultTraits<Params...>>
+            {};
+            
+            template<>
+            struct DefaultTraits<void> :
+                DefaultValues
+            {};
+
+            template<typename... Params>
+            struct Defaults : DefaultTraits<Params..., void>
+            {};
+        } // namespace nitro_details
+
+        namespace nitro {
+            using nitro_details::Defaults;
+            using nitro_details::StepIndex;
+
+            template<bool is_root>
+            using IsRoot = nitro_details::IsRoot<is_root>;
+
+            template<StepIndex max_steps>
+            using MaxSteps = nitro_details::MaxSteps<max_steps>;
+
+            template<StepIndex max_timeouts>
+            using MaxTimeouts = nitro_details::MaxTimeouts<max_timeouts>;
+
+            template<StepIndex max_cancels>
+            using MaxCancels = nitro_details::MaxCancels<max_cancels>;
+
+            template<StepIndex max_extended>
+            using MaxExtended = nitro_details::MaxExtended<max_extended>;
+
+            template<StepIndex max_size>
+            using ErrorCodeMaxSize = nitro_details::ErrorCodeMaxSize<max_size>;
+        } // namespace nitro
+
+        /**
+         * @brief Nitro-implementation of AsyncSteps
+         */
+        template<typename... Params>
+        class NitroSteps final
+            : public IAsyncSteps,
+              private nitro_details::HandleBases<NitroSteps<Params...>>
+        {
+            using Parameters = nitro_details::Defaults<Params...>;
+            using StepIndex = nitro_details::StepIndex;
+            using NitroStepData = nitro_details::NitroStepData;
+
+            using HandleBases = nitro_details::HandleBases<NitroSteps>;
+            using typename HandleBases::HandleExecute;
+            using typename HandleBases::HandleLoop;
+            using typename HandleBases::HandleSync;
+            using typename HandleBases::HandleTimeout;
+
+            friend HandleExecute;
+            friend HandleTimeout;
+            friend HandleLoop;
+            friend HandleSync;
+
+        public:
+            NitroSteps(IAsyncTool& async_tool) noexcept :
+                async_tool_(async_tool),
+                impl_(*this, async_tool)
+            {}
+
+            NitroSteps(const NitroSteps&) = delete;
+            NitroSteps& operator=(const NitroSteps&) = delete;
+            NitroSteps(NitroSteps&&) = default;
+            NitroSteps& operator=(NitroSteps&&) = default;
+            ~NitroSteps() noexcept final
+            {
+                cancel();
+            }
+
+            IAsyncSteps& parallel(ErrorPass on_error = {}) noexcept final
+            {
+                // TODO
+                (void) on_error;
+                return *this;
+            }
+
+            asyncsteps::NextArgs& nextargs() noexcept final
+            {
+                return next_args_;
+            }
+
+            [[noreturn]] IAsyncSteps& copyFrom(
+                    IAsyncSteps& /*asi*/) noexcept final
+            {
+                FatalMsg() << "copyFrom() is not supported";
+            }
+
+            void setTimeout(std::chrono::milliseconds to) noexcept final
+            {
+                if (timeout_size_ == timeout_list_.size()) {
+                    FatalMsg() << "Reached maximum number of setCancel() per "
+                                  "NitroSteps";
+                }
+
+                auto& handle = timeout_list_[timeout_size_];
+                ++timeout_size_;
+
+                HandleTimeout& ht = *this;
+                handle = async_tool_.deferred(to, std::ref(ht));
+
+                last_step_->flags |= NitroStepData::HaveTimeout;
+            }
+
+            void setCancel(CancelPass cb) noexcept final
+            {
+                if (cancel_size_ == cancel_list_.size()) {
+                    FatalMsg() << "Reached maximum number of setCancel() per "
+                                  "NitroSteps";
+                }
+
+                auto& handler = cancel_list_[cancel_size_];
+                ++cancel_size_;
+
+                cb.move(handler.func, handler.storage);
+
+                last_step_->flags |= NitroStepData::HaveCancel;
+            }
+
+            void waitExternal() noexcept final
+            {
+                last_step_->flags |= NitroStepData::HaveWait;
+            }
+
+            void execute() noexcept final
+            {
+                HandleExecute& he = *this;
+                exec_handle_ = async_tool_.immediate(std::ref(he));
+            }
+
+            void cancel() noexcept final
+            {
+                if (!is_queue_empty() && !async_tool_.is_same_thread()) {
+                    std::promise<void> done;
+                    auto task = [this, &done]() {
+                        this->cancel();
+                        done.set_value();
+                    };
+                    async_tool_.immediate(std::ref(task));
+                    done.get_future().wait();
+                    return;
+                }
+                
+                exec_handle_.cancel();
+
+                while (last_step_ != nullptr) {
+                    auto current = last_step_;
+
+                    if (current->has_cancel()) {
+                        cancel_list_[cancel_size_ - 1].func(*this);
+                        --cancel_size_;
+                        current->clear_flags(NitroStepData::HaveCancel);
+                    }
+
+                    free_step(current);
+                    last_step_ = current->parent;
+                }
+
+                reset_queue();
+            }
+
+            operator bool() const noexcept final
+            {
+                return queue_size_ != 0;
+            }
+
+            std::unique_ptr<IAsyncSteps> newInstance() noexcept final
+            {
+                return std::unique_ptr<IAsyncSteps>(
+                        new NitroSteps(async_tool_));
+            }
+
+            SyncRootID sync_root_id() const final
+            {
+                return reinterpret_cast<SyncRootID>(this);
+            }
+
+            State& state() noexcept final
+            {
+                return impl_.get_state();
+            }
+
+            void* stack(
+                    std::size_t object_size,
+                    StackDestroyHandler destroy_cb) noexcept final
+            {
+                // TODO:
+                (void) object_size;
+                (void) destroy_cb;
+                return nullptr;
+            }
+
+            using IAsyncSteps::promise;
+            using IAsyncSteps::stack;
+            using IAsyncSteps::state;
+
+        protected:
+            StepData& add_step() noexcept final
+            {
+                return alloc_step(last_step_);
+            }
+
+            void handle_success() noexcept final
+            {
+                auto current = last_step_;
+
+                if (!is_sub_queue_empty(current)) {
+                    FatalMsg() << "success() with non-empty queue";
+                }
+
+                current = current->parent;
+
+                while (current != nullptr) {
+                    cond_sub_queue_shift(current);
+
+                    if (!is_sub_queue_empty(current)) {
+                        last_step_ = current;
+                        execute();
+                        return;
+                    }
+
+                    sub_queue_free(current);
+                    current = current->parent;
+                }
+                
+                last_step_ = nullptr;
+
+                // Got to root queue
+                cond_queue_shift();
+
+                if (!is_queue_empty()) {
+                    execute();
+                }
+            }
+
+            void handle_error(ErrorCode code) final
+            {
+                if (exec_handle_) {
+                    exec_handle_.cancel();
+                }
+
+                if (in_exec_) {
+                    // avoid double handling
+                    return;
+                }
+
+                auto current = last_step_;
+
+                for (;;) {
+                    sub_queue_free(current);
+                    current->sub_queue_front = current->sub_queue_start;
+
+                    if (current->has_time_limit()) {
+                        timeout_list_[timeout_size_ - 1].cancel();
+                        --timeout_size_;
+                        current->clear_flags(NitroStepData::HaveTimeout);
+                    }
+
+                    if (current->has_cancel()) {
+                        cancel_list_[cancel_size_ - 1].func(*this);
+                        --cancel_size_;
+                        current->clear_flags(NitroStepData::HaveCancel);
+                    }
+
+                    asyncsteps::ErrorHandler on_error{
+                            std::move(current->on_error_)};
+
+                    if (on_error) {
+                        try {
+                            in_exec_ = true;
+                            on_error(*this, code);
+                            in_exec_ = false;
+
+                            if (last_step_ != current) {
+                                // success() was called
+                                return;
+                            }
+
+                            if (!is_sub_queue_empty(current)) {
+                                execute();
+                                return;
+                            }
+                        } catch (const std::exception& e) {
+                            in_exec_ = false;
+                            impl_.get_state().catch_trace(e);
+
+                            code = cache_error_code(e.what());
+                        }
+                    }
+
+                    free_step(current);
+                    current = current->parent;
+                    last_step_ = current;
+
+                    if (current == nullptr) {
+                        break;
+                    }
+                }
+
+                reset_queue();
+
+                auto& unhandled_error = impl_.get_state().unhandled_error;
+
+                if (unhandled_error) {
+                    unhandled_error(code);
+                } else {
+                    FatalMsg() << "unhandled AsyncStep error " << code;
+                }
+            }
+
+            asyncsteps::LoopState& add_loop() noexcept final
+            {
+                auto& step = alloc_step(last_step_);
+
+                HandleLoop& hl = *this;
+
+                step.func_ = std::ref(hl);
+
+                return alloc_extended(step);
+            }
+
+            StepData& add_sync(ISync& obj) noexcept final
+            {
+                auto& step = alloc_step(last_step_);
+
+                HandleSync& hs = *this;
+                step.func_ = std::ref(hs);
+
+                auto& ext_state = alloc_extended(step);
+                ext_state.sync_object = &obj;
+                return ext_state.sync_data;
+            }
+
+            void await_impl(AwaitPass /*awp*/) noexcept final
+            {
+                // TODO
+            }
+
+        private:
+            void handle_execute() noexcept
+            {
+                exec_handle_.reset();
+                NitroStepData* next = nullptr;
+                
+                auto current = last_step_;
+
+                while (current != nullptr) {
+                    if (is_sub_queue_empty(current)) {
+                        sub_queue_free(current);
+                        current = current->parent;
+                        last_step_ = current;
+                    } else {
+                        next = step_front(current);
+                        break;
+                    }
+                }
+
+                if (next == nullptr) {
+                    if (is_queue_empty()) {
+                        return;
+                    }
+
+                    next = step_at(queue_begin_);
+                }
+
+                const auto qs = queue_end();
+                next->sub_queue_start = qs;
+                next->sub_queue_front = qs;
+
+                last_step_ = next;
+
+                try {
+                    in_exec_ = true;
+                    next->func_(*this);
+
+                    if (last_step_ != next) {
+                        // pass
+                    } else if (!is_sub_queue_empty(next)) {
+                        execute();
+                    } else if (next->is_auto_success()) {
+                        handle_success();
+                    }
+
+                    in_exec_ = false;
+                } catch (const std::exception& e) {
+                    in_exec_ = false;
+                    impl_.get_state().catch_trace(e);
+                    handle_error(e.what());
+                }
+            }
+
+            void handle_timeout() noexcept
+            {
+                handle_error(errors::Timeout);
+            }
+
+            bool is_queue_empty() const noexcept
+            {
+                return queue_size_ == 0;
+            }
+
+            StepIndex queue_end() const noexcept
+            {
+                return (queue_begin_ + queue_size_) % Parameters::MAX_STEPS;
+            }
+
+            bool is_sub_queue_empty(NitroStepData* current) const noexcept
+            {
+                return current->sub_queue_front == queue_end();
+            }
+
+            void sub_queue_free(NitroStepData* current) noexcept
+            {
+                queue_size_ = (current->sub_queue_start + Parameters::MAX_STEPS
+                               - queue_begin_)
+                              % Parameters::MAX_STEPS;
+            }
+
+            void shift_queue_index(StepIndex& index) noexcept
+            {
+                index = (index + 1) % Parameters::MAX_STEPS;
+            }
+
+            void cond_sub_queue_shift(NitroStepData* current)
+            {
+                auto front = step_at(current->sub_queue_front);
+                
+                if (!front->is_step_repeat()) {
+                    free_step(front);
+                    shift_queue_index(current->sub_queue_front);
+                }
+            }
+
+            void cond_queue_shift()
+            {
+                auto current = step_at(queue_begin_);
+
+                if (!current->is_step_repeat()) {
+                    free_step(current);
+                    shift_queue_index(queue_begin_);
+                    --queue_size_;
+                }
+            }
+
+            NitroStepData* step_front(NitroStepData* current) noexcept
+            {
+                return &(queue_[current->sub_queue_front]);
+            }
+
+            NitroStepData* step_at(StepIndex index) noexcept
+            {
+                return &(queue_[index]);
+            }
+
+            typename Parameters::ExtendedState& current_ext_state() noexcept
+            {
+                return extended_list_[extended_size_ - 1];
+            }
+
+            NitroStepData& alloc_step(NitroStepData* parent) noexcept
+            {
+                if (queue_size_ == Parameters::MAX_STEPS) {
+                    FatalMsg() << "Reached NitroSteps limit";
+                }
+
+                auto index = queue_end();
+                ++queue_size_;
+                auto& step = queue_[index];
+                step.reset();
+                step.parent = parent;
+                return step;
+            }
+
+            typename Parameters::ExtendedState& alloc_extended(
+                    NitroStepData& step) noexcept
+            {
+                if (extended_size_ == extended_list_.size()) {
+                    FatalMsg() << "Reached maximum number of extended state "
+                                  "per NitroSteps";
+                }
+
+                auto& ext_state = extended_list_[extended_size_];
+                ++extended_size_;
+
+                step.flags |= NitroStepData::HaveExtended;
+
+                return ext_state;
+            }
+
+            void free_step(NitroStepData* current) noexcept
+            {
+                if (current->has_time_limit()) {
+                    timeout_list_[timeout_size_ - 1].cancel();
+                    --timeout_size_;
+                }
+
+                if (current->has_cancel()) {
+                    --cancel_size_;
+                }
+                
+                if (current->has_extended()) {
+                    --extended_size_;
+                }
+
+                current->clear_resource_flags();
+            }
+
+            void reset_queue() noexcept
+            {
+                queue_begin_ = 0;
+                queue_size_ = 0;
+                timeout_size_ = 0;
+            }
+
+            RawErrorCode cache_error_code(RawErrorCode code) noexcept
+            {
+                strncpy(error_code_cache, code, sizeof(error_code_cache));
+
+                if (error_code_cache[sizeof(error_code_cache) - 1] != 0) {
+                    FatalMsg()
+                            << "too long error code for NitroSteps: " << code;
+                }
+
+                return error_code_cache;
+            }
+
+            IAsyncTool& async_tool_;
+            typename Parameters::template Impl<NitroSteps> impl_;
+            IAsyncTool::Handle exec_handle_;
+            asyncsteps::NextArgs next_args_;
+            typename Parameters::Queue queue_;
+            typename Parameters::TimeoutList timeout_list_;
+            typename Parameters::CancelList cancel_list_;
+            typename Parameters::ExtendedList extended_list_;
+            NitroStepData* last_step_{nullptr};
+            StepIndex queue_begin_{0};
+            StepIndex queue_size_{0};
+            StepIndex timeout_size_{0};
+            StepIndex cancel_size_{0};
+            StepIndex extended_size_{0};
+            bool in_exec_{false};
+            typename Parameters::ErrorCodeCache error_code_cache;
+
+#if 0
+            static_assert(
+                        std::is_trivial<NitroStepData>::value,
+                        "StepData is not trivial");
+#endif
+        };
+    } // namespace ri
+} // namespace futoin
+
+//---
+#endif // FUTOIN_RI_NITROSTEPS_HPP
