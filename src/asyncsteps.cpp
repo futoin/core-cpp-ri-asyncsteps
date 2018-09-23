@@ -515,13 +515,16 @@ namespace futoin {
 
             static void await_handler(IAsyncSteps& asi)
             {
+                using std::chrono::milliseconds;
+
                 auto& that = static_cast<Protector&>(asi);
                 auto& ext = *(that.ext_data_);
 
+                // NOTE: reset to shift queue in success()
                 ext.continue_loop = false;
 
                 // NOTE: Yes, it's resource intensive
-                if (!ext.await_func_(asi, std::chrono::milliseconds{0}, true)) {
+                if (!ext.await_func_(asi, milliseconds{0}, true)) {
                     ext.continue_loop = true;
                 }
             }

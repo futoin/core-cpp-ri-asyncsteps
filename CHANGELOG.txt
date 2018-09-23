@@ -3,6 +3,7 @@
 FIXED: possible timeout handling issues under rare circumstances
 CHANGED: improved AsyncSteps::loop implementation to avoid implicit step creation
 CHANGED: minor refactoring
+NEW: experimental NitroSteps implementation
 
 === 1.2.1 (2018-09-20) ===
 FIXED: boost memory pool epic performance issues with ordered_free()

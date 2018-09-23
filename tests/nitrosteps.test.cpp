@@ -22,12 +22,12 @@
 #include <future>
 #include <thread>
 //---
-#include <futoin/ri/asyncsteps.hpp>
 #include <futoin/ri/asynctool.hpp>
+#include <futoin/ri/nitrosteps.hpp>
 
 using namespace futoin;
 
-BOOST_AUTO_TEST_SUITE(asyncsteps) // NOLINT
+BOOST_AUTO_TEST_SUITE(nitrosteps) // NOLINT
 
 const std::chrono::milliseconds TEST_DELAY{100}; // NOLINT
 
@@ -38,13 +38,14 @@ BOOST_AUTO_TEST_SUITE(basic) // NOLINT
 BOOST_AUTO_TEST_CASE(add_success) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
     auto& root = asi;
 
     std::atomic_size_t count{0};
 
     asi.add([&](IAsyncSteps& asi) {
-        BOOST_CHECK(!root);
+        // BOOST_CHECK(!root);
+        BOOST_CHECK(root); // nitro-specific
         ++count;
         BOOST_CHECK(asi);
     });
@@ -86,7 +87,7 @@ BOOST_AUTO_TEST_CASE(add_success) // NOLINT
 BOOST_AUTO_TEST_CASE(inner_add_success) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::promise<void> done;
     std::atomic_size_t count{0};
@@ -147,7 +148,7 @@ BOOST_AUTO_TEST_CASE(inner_add_success) // NOLINT
 BOOST_AUTO_TEST_CASE(state) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::promise<void> done;
 
@@ -179,7 +180,7 @@ BOOST_AUTO_TEST_CASE(state) // NOLINT
 BOOST_AUTO_TEST_CASE(handle_errors) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::promise<void> done;
     using V = std::vector<int>;
@@ -255,7 +256,7 @@ BOOST_AUTO_TEST_CASE(handle_errors) // NOLINT
 BOOST_AUTO_TEST_CASE(set_cancel_success) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     using Promise = std::promise<void>;
     std::promise<IAsyncSteps*> wait;
@@ -284,7 +285,7 @@ BOOST_AUTO_TEST_CASE(set_cancel_success) // NOLINT
 BOOST_AUTO_TEST_CASE(wait_external_error) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::promise<IAsyncSteps*> wait;
     std::promise<bool> done;
@@ -325,7 +326,7 @@ BOOST_AUTO_TEST_CASE(wait_external_error) // NOLINT
 BOOST_AUTO_TEST_CASE(set_timeout_success) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::promise<IAsyncSteps*> wait;
     std::promise<void> done;
@@ -353,7 +354,7 @@ BOOST_AUTO_TEST_CASE(set_timeout_success) // NOLINT
 BOOST_AUTO_TEST_CASE(set_timeout_fail) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::promise<void> done;
 
@@ -383,7 +384,7 @@ BOOST_AUTO_TEST_CASE(set_timeout_fail) // NOLINT
 BOOST_AUTO_TEST_CASE(catch_trace) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     using Promise = std::promise<void>;
     Promise done;
@@ -420,7 +421,7 @@ BOOST_AUTO_TEST_SUITE(loops) // NOLINT
 BOOST_AUTO_TEST_CASE(repeat) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::promise<void> done;
 
@@ -439,7 +440,7 @@ BOOST_AUTO_TEST_CASE(repeat) // NOLINT
 BOOST_AUTO_TEST_CASE(loop_break) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     using V = std::vector<int>;
 
@@ -482,17 +483,15 @@ BOOST_AUTO_TEST_CASE(loop_break) // NOLINT
     done.get_future().wait();
 
     V required{1, 2, 3, 3, 2, 3, 3};
+    auto& result = asi.state<V>("result");
     BOOST_CHECK_EQUAL_COLLECTIONS(
-            asi.state<V>("result").begin(),
-            asi.state<V>("result").end(),
-            required.begin(),
-            required.end());
+            result.begin(), result.end(), required.begin(), required.end());
 }
 
 BOOST_AUTO_TEST_CASE(loop_continue) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     using V = std::vector<int>;
 
@@ -549,7 +548,7 @@ BOOST_AUTO_TEST_CASE(loop_continue) // NOLINT
 BOOST_AUTO_TEST_CASE(loop_error) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     using V = std::vector<int>;
 
@@ -602,7 +601,7 @@ BOOST_AUTO_TEST_CASE(loop_error) // NOLINT
 BOOST_AUTO_TEST_CASE(loop_foreach_vector) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::promise<void> done;
 
@@ -635,7 +634,7 @@ BOOST_AUTO_TEST_CASE(loop_foreach_vector) // NOLINT
 BOOST_AUTO_TEST_CASE(loop_foreach_map) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::promise<void> done;
 
@@ -674,7 +673,7 @@ BOOST_AUTO_TEST_SUITE(parallel) // NOLINT
 BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     using V = std::vector<int>;
 
@@ -704,7 +703,7 @@ BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(31); });
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(32); });
     });
-    p.repeat(2, [](IAsyncSteps& asi, size_t i) {
+    p.repeat(3, [](IAsyncSteps& asi, size_t i) {
         asi.state<V>("result").push_back(40 + i);
     });
 
@@ -713,7 +712,7 @@ BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
 
     done.get_future().wait();
 
-    V required{1, 2, 3, 40, 11, 21, 31, 41, 12, 22, 32};
+    V required{1, 2, 3, 40, 11, 21, 31, 41, 12, 22, 32, 42};
     BOOST_CHECK_EQUAL_COLLECTIONS(
             asi.state<V>("result").begin(),
             asi.state<V>("result").end(),
@@ -724,7 +723,7 @@ BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
 BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     using V = std::vector<int>;
 
@@ -764,7 +763,7 @@ BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
                 asi.state<V>("result").push_back(32);
             });
         });
-        p.repeat(2, [](IAsyncSteps& asi, size_t i) {
+        p.repeat(3, [](IAsyncSteps& asi, size_t i) {
             asi.state<V>("result").push_back(40 + i);
         });
     });
@@ -774,7 +773,7 @@ BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
 
     done.get_future().wait();
 
-    V required{0, 1, 2, 3, 40, 11, 21, 31, 41, 12, 22, 32};
+    V required{0, 1, 2, 3, 40, 11, 21, 31, 41, 12, 22, 32, 42};
     BOOST_CHECK_EQUAL_COLLECTIONS(
             asi.state<V>("result").begin(),
             asi.state<V>("result").end(),
@@ -785,7 +784,7 @@ BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
 BOOST_AUTO_TEST_CASE(error_outer) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     using V = std::vector<int>;
 
@@ -816,7 +815,7 @@ BOOST_AUTO_TEST_CASE(error_outer) // NOLINT
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(21); });
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(22); });
     });
-    p.repeat(3, [](IAsyncSteps& asi, size_t i) {
+    p.repeat(2, [](IAsyncSteps& asi, size_t i) {
         asi.state<V>("result").push_back(40 + i);
     });
 
@@ -842,7 +841,7 @@ BOOST_AUTO_TEST_SUITE(futures) // NOLINT
 BOOST_AUTO_TEST_CASE(promise_void) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::atomic_size_t count{0};
 
@@ -860,7 +859,7 @@ BOOST_AUTO_TEST_CASE(promise_void) // NOLINT
 BOOST_AUTO_TEST_CASE(promise_res) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::atomic_size_t count{0};
 
@@ -881,7 +880,7 @@ BOOST_AUTO_TEST_CASE(promise_res) // NOLINT
 BOOST_AUTO_TEST_CASE(promise_error) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::atomic_size_t count{0};
 
@@ -905,7 +904,7 @@ BOOST_AUTO_TEST_CASE(promise_error) // NOLINT
 BOOST_AUTO_TEST_CASE(await_void) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::atomic_size_t count{0};
     std::promise<void> ext;
@@ -937,7 +936,7 @@ BOOST_AUTO_TEST_CASE(await_void) // NOLINT
 BOOST_AUTO_TEST_CASE(await_res) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::atomic_size_t count{0};
     std::promise<int> ext;
@@ -972,7 +971,7 @@ BOOST_AUTO_TEST_CASE(await_res) // NOLINT
 BOOST_AUTO_TEST_CASE(await_cancel) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::atomic_size_t count{0};
     std::promise<int> ext;
@@ -1007,7 +1006,7 @@ BOOST_AUTO_TEST_CASE(await_cancel) // NOLINT
 BOOST_AUTO_TEST_CASE(await_error) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     std::atomic_size_t count{0};
     std::promise<int> ext;
@@ -1067,7 +1066,7 @@ BOOST_AUTO_TEST_CASE(stack_alloc) // NOLINT
 {
     {
         ri::AsyncTool at;
-        ri::AsyncSteps asi(at);
+        ri::NitroSteps<> asi(at);
 
         AllocObject::new_count = 0;
         AllocObject::del_count = 0;
@@ -1132,7 +1131,7 @@ BOOST_AUTO_TEST_CASE(instance_outer) // NOLINT
             TEST_DELAY, [&]() { done.store(true, std::memory_order_release); });
 
     while (!done.load(std::memory_order_consume)) {
-        ri::AsyncSteps asi(at);
+        ri::NitroSteps<> asi(at);
         ++count;
     }
 
@@ -1158,7 +1157,7 @@ BOOST_AUTO_TEST_CASE(instance_inner) // NOLINT
         size_t count = 0;
 
         while (!refs.done.load(std::memory_order_consume)) {
-            ri::AsyncSteps asi(refs.at);
+            ri::NitroSteps<> asi(refs.at);
             ++count;
         }
 
@@ -1190,7 +1189,7 @@ BOOST_AUTO_TEST_CASE(instance_concurrent_inner) // NOLINT
         size_t count = 0;
 
         while (!refs.done.load(std::memory_order_consume)) {
-            ri::AsyncSteps asi(refs.at);
+            ri::NitroSteps<> asi(refs.at);
             ++count;
         }
 
@@ -1201,7 +1200,7 @@ BOOST_AUTO_TEST_CASE(instance_concurrent_inner) // NOLINT
         size_t count = 0;
 
         while (!refs.done.load(std::memory_order_consume)) {
-            ri::AsyncSteps asi(refs.at);
+            ri::NitroSteps<> asi(refs.at);
             ++count;
         }
 
@@ -1225,7 +1224,7 @@ BOOST_AUTO_TEST_CASE(instance_outer_add) // NOLINT
             TEST_DELAY, [&]() { done.store(true, std::memory_order_release); });
 
     while (!done.load(std::memory_order_consume)) {
-        ri::AsyncSteps asi(at);
+        ri::NitroSteps<ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>> asi(at);
 
         for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
             asi.add([](IAsyncSteps&) {});
@@ -1255,7 +1254,8 @@ BOOST_AUTO_TEST_CASE(instance_inner_add) // NOLINT
         size_t count = 0;
 
         while (!refs.done.load(std::memory_order_consume)) {
-            ri::AsyncSteps asi(refs.at);
+            ri::NitroSteps<ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>> asi(
+                    refs.at);
 
             for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
                 asi.add([](IAsyncSteps&) {});
@@ -1282,7 +1282,10 @@ BOOST_AUTO_TEST_CASE(instance_outer_loop) // NOLINT
             TEST_DELAY, [&]() { done.store(true, std::memory_order_release); });
 
     while (!done.load(std::memory_order_consume)) {
-        ri::AsyncSteps asi(at);
+        ri::NitroSteps<
+                ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>,
+                ri::nitro::MaxExtended<TEST_STEP_INSTANCE_COUNT>>
+                asi(at);
 
         for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
             asi.loop([](IAsyncSteps&) {});
@@ -1312,7 +1315,10 @@ BOOST_AUTO_TEST_CASE(instance_inner_loop) // NOLINT
         size_t count = 0;
 
         while (!refs.done.load(std::memory_order_consume)) {
-            ri::AsyncSteps asi(refs.at);
+            ri::NitroSteps<
+                    ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>,
+                    ri::nitro::MaxExtended<TEST_STEP_INSTANCE_COUNT>>
+                    asi(refs.at);
 
             for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
                 asi.loop([](IAsyncSteps&) {});
@@ -1339,7 +1345,10 @@ BOOST_AUTO_TEST_CASE(instance_outer_parallel) // NOLINT
             TEST_DELAY, [&]() { done.store(true, std::memory_order_release); });
 
     while (!done.load(std::memory_order_consume)) {
-        ri::AsyncSteps asi(at);
+        ri::NitroSteps<
+                ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>,
+                ri::nitro::MaxExtended<TEST_STEP_INSTANCE_COUNT>>
+                asi(at);
 
         for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
             asi.parallel([](IAsyncSteps&, ErrorCode) {});
@@ -1369,7 +1378,10 @@ BOOST_AUTO_TEST_CASE(instance_inner_parallel) // NOLINT
         size_t count = 0;
 
         while (!refs.done.load(std::memory_order_consume)) {
-            ri::AsyncSteps asi(refs.at);
+            ri::NitroSteps<
+                    ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>,
+                    ri::nitro::MaxExtended<TEST_STEP_INSTANCE_COUNT>>
+                    asi(refs.at);
 
             for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
                 asi.parallel([](IAsyncSteps&, ErrorCode) {});
@@ -1388,7 +1400,7 @@ BOOST_AUTO_TEST_CASE(instance_inner_parallel) // NOLINT
 BOOST_AUTO_TEST_CASE(plain_outer_loop) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     volatile size_t count = 0;
 
@@ -1410,7 +1422,7 @@ BOOST_AUTO_TEST_CASE(plain_outer_loop) // NOLINT
 BOOST_AUTO_TEST_CASE(plain_inner_loop) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     volatile size_t count = 0;
 
@@ -1434,7 +1446,7 @@ BOOST_AUTO_TEST_CASE(plain_inner_loop) // NOLINT
 BOOST_AUTO_TEST_CASE(parallel_outer_loop) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::NitroSteps<> asi(at);
 
     volatile size_t count = 0;
 
@@ -1464,8 +1476,8 @@ BOOST_AUTO_TEST_CASE(double_outer_loop) // NOLINT
     {
         ri::AsyncTool at1;
         ri::AsyncTool at2;
-        ri::AsyncSteps as1{at1};
-        ri::AsyncSteps as2{at2};
+        ri::NitroSteps<> as1{at1};
+        ri::NitroSteps<> as2{at2};
     } refs;
 
     volatile size_t count1 = 0;
@@ -1501,7 +1513,7 @@ BOOST_AUTO_TEST_CASE(double_outer_loop_nomutex) // NOLINT
 
         GlobalMemPool::set_thread_default(at.mem_pool());
 
-        ri::AsyncSteps asi{at};
+        ri::NitroSteps<> asi{at};
 
         std::promise<void> done;
         at.deferred(std::chrono::milliseconds(1000), [&]() { asi.cancel(); });
