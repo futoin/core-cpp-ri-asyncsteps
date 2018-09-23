@@ -24,6 +24,7 @@
 //---
 #include <futoin/fatalmsg.hpp>
 #include <futoin/iasyncsteps.hpp>
+#include <futoin/iasynctool.hpp>
 //---
 #include <array>
 #include <cstdint>
@@ -320,7 +321,7 @@ namespace futoin {
 
                 void await_impl(AwaitPass cb) noexcept override
                 {
-                    new_parallel_item().await_impl(std::move(cb));
+                    new_parallel_item().await_impl(cb);
                 }
 
                 [[noreturn]] State& state() noexcept final
@@ -458,9 +459,8 @@ namespace futoin {
                     }
 
                     void sub_completion() const noexcept {}
-                    constexpr bool sub_onerror(
-                            IAsyncSteps& /*sub*/, ErrorCode /*code*/) const
-                            noexcept
+                    bool sub_onerror(IAsyncSteps& /*sub*/, ErrorCode /*code*/)
+                            const noexcept
                     {
                         return false;
                     }
@@ -567,8 +567,9 @@ namespace futoin {
                         StepData orig_step_data;
 
                         using ParallelItem = typename NS::ParallelSteps;
-                        using ParallelItems =
-                                std::deque<ParallelItem, IMemPool::Allocator<ParallelItem>>;
+                        using ParallelItems = std::deque<
+                                ParallelItem,
+                                IMemPool::Allocator<ParallelItem>>;
                         ParallelItems parallel_items;
                         std::aligned_storage<
                                 sizeof(void*) * 3,
@@ -682,7 +683,8 @@ namespace futoin {
             using Parameters = nitro_details::Defaults<Params...>;
             using StepIndex = nitro_details::StepIndex;
             using NitroStepData = nitro_details::NitroStepData;
-            using ExtendedState = typename Parameters::template ExtendedState<NitroSteps>;
+            using ExtendedState =
+                    typename Parameters::template ExtendedState<NitroSteps>;
 
             using HandleBases = nitro_details::HandleBases<NitroSteps>;
             using typename HandleBases::HandleAwait;
@@ -715,7 +717,7 @@ namespace futoin {
             template<typename...>
             friend class NitroSteps;
             template<typename>
-            friend struct futoin::IMemPool::Allocator;
+            friend class futoin::IMemPool::Allocator;
 
             NitroSteps(
                     IAsyncTool& async_tool,
@@ -733,8 +735,8 @@ namespace futoin {
 
             NitroSteps(const NitroSteps&) = delete;
             NitroSteps& operator=(const NitroSteps&) = delete;
-            NitroSteps(NitroSteps&&) = default;
-            NitroSteps& operator=(NitroSteps&&) = default;
+            NitroSteps(NitroSteps&&) = delete;
+            NitroSteps& operator=(NitroSteps&&) = delete;
             ~NitroSteps() noexcept final
             {
                 cancel();
@@ -1264,7 +1266,8 @@ namespace futoin {
             typename Parameters::Queue queue_;
             typename Parameters::TimeoutList timeout_list_;
             typename Parameters::CancelList cancel_list_;
-            typename Parameters::template ExtendedList<NitroSteps> extended_list_;
+            typename Parameters::template ExtendedList<NitroSteps>
+                    extended_list_;
             typename Parameters::StackAllocList stack_alloc_list_;
             NitroStepData* last_step_{nullptr};
             StepIndex queue_begin_{0};

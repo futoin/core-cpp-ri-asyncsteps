@@ -28,7 +28,8 @@ using TunedNitroStep = ri::NitroSteps<
     ri::nitro::MaxSteps<3>,
     ri::nitro::MaxTimeouts<1>,
     ri::nitro::MaxCancels<1>,
-    ri::nitro::MaxExtended<1>
+    ri::nitro::MaxExtended<1>,
+    ri::nitro::MaxStackAllocs<1>
 >;
 
 void Simple_bench(unsigned count) {

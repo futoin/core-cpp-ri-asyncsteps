@@ -1254,7 +1254,8 @@ BOOST_AUTO_TEST_CASE(instance_inner_add) // NOLINT
         size_t count = 0;
 
         while (!refs.done.load(std::memory_order_consume)) {
-            ri::NitroSteps<ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>> asi(refs.at);
+            ri::NitroSteps<ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>> asi(
+                    refs.at);
 
             for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
                 asi.add([](IAsyncSteps&) {});
@@ -1282,9 +1283,9 @@ BOOST_AUTO_TEST_CASE(instance_outer_loop) // NOLINT
 
     while (!done.load(std::memory_order_consume)) {
         ri::NitroSteps<
-            ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>,
-            ri::nitro::MaxExtended<TEST_STEP_INSTANCE_COUNT>
-            > asi(at);
+                ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>,
+                ri::nitro::MaxExtended<TEST_STEP_INSTANCE_COUNT>>
+                asi(at);
 
         for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
             asi.loop([](IAsyncSteps&) {});
@@ -1315,9 +1316,9 @@ BOOST_AUTO_TEST_CASE(instance_inner_loop) // NOLINT
 
         while (!refs.done.load(std::memory_order_consume)) {
             ri::NitroSteps<
-                ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>,
-                ri::nitro::MaxExtended<TEST_STEP_INSTANCE_COUNT>
-                > asi(refs.at);
+                    ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>,
+                    ri::nitro::MaxExtended<TEST_STEP_INSTANCE_COUNT>>
+                    asi(refs.at);
 
             for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
                 asi.loop([](IAsyncSteps&) {});
@@ -1345,9 +1346,9 @@ BOOST_AUTO_TEST_CASE(instance_outer_parallel) // NOLINT
 
     while (!done.load(std::memory_order_consume)) {
         ri::NitroSteps<
-            ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>,
-            ri::nitro::MaxExtended<TEST_STEP_INSTANCE_COUNT>
-            > asi(at);
+                ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>,
+                ri::nitro::MaxExtended<TEST_STEP_INSTANCE_COUNT>>
+                asi(at);
 
         for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
             asi.parallel([](IAsyncSteps&, ErrorCode) {});
@@ -1378,9 +1379,9 @@ BOOST_AUTO_TEST_CASE(instance_inner_parallel) // NOLINT
 
         while (!refs.done.load(std::memory_order_consume)) {
             ri::NitroSteps<
-                ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>,
-                ri::nitro::MaxExtended<TEST_STEP_INSTANCE_COUNT>
-                > asi(refs.at);
+                    ri::nitro::MaxSteps<TEST_STEP_INSTANCE_COUNT>,
+                    ri::nitro::MaxExtended<TEST_STEP_INSTANCE_COUNT>>
+                    asi(refs.at);
 
             for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
                 asi.parallel([](IAsyncSteps&, ErrorCode) {});
