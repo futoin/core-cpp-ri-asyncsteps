@@ -229,7 +229,7 @@ namespace futoin {
                     asi.setCancel(&HandleParallelBase::cancel_parallel);
 
                     for (auto& p : ext_state.parallel_items) {
-                        p->execute();
+                        p.execute();
                     }
                 }
 
@@ -263,8 +263,8 @@ namespace futoin {
                     auto& ext_state = ns.current_ext_state();
 
                     for (auto& v : ext_state.parallel_items) {
-                        if (v.get() != &sub) {
-                            v->cancel();
+                        if (&v != &sub) {
+                            v.cancel();
                         }
                     }
 
@@ -299,9 +299,8 @@ namespace futoin {
 
                 PS& new_parallel_item() noexcept
                 {
-                    auto ps = new PS(root.async_tool_, root);
-                    parallel_items.emplace_back(ps);
-                    return *ps;
+                    parallel_items.emplace_back(root.async_tool_, root);
+                    return parallel_items.back();
                 }
 
                 StepData& add_step() noexcept override
@@ -561,13 +560,15 @@ namespace futoin {
                 template<typename Base>
                 struct Override : Base
                 {
+                    template<typename NS>
                     struct ExtendedState : LoopState
                     {
                         bool is_used{false};
                         StepData orig_step_data;
 
+                        using ParallelItem = typename NS::ParallelSteps;
                         using ParallelItems =
-                                std::deque<std::unique_ptr<IAsyncSteps>>;
+                                std::deque<ParallelItem, IMemPool::Allocator<ParallelItem>>;
                         ParallelItems parallel_items;
                         std::aligned_storage<
                                 sizeof(void*) * 3,
@@ -583,8 +584,9 @@ namespace futoin {
                         asyncsteps::AwaitCallback await_func_;
                     };
 
+                    template<typename NS>
                     using ExtendedList =
-                            std::array<ExtendedState, max_extended>;
+                            std::array<ExtendedState<NS>, max_extended>;
                     static constexpr auto MAX_EXTENDED = max_extended;
                 };
             };
@@ -680,7 +682,7 @@ namespace futoin {
             using Parameters = nitro_details::Defaults<Params...>;
             using StepIndex = nitro_details::StepIndex;
             using NitroStepData = nitro_details::NitroStepData;
-            using ExtendedState = typename Parameters::ExtendedState;
+            using ExtendedState = typename Parameters::template ExtendedState<NitroSteps>;
 
             using HandleBases = nitro_details::HandleBases<NitroSteps>;
             using typename HandleBases::HandleAwait;
@@ -690,6 +692,7 @@ namespace futoin {
             using typename HandleBases::HandleSync;
             using typename HandleBases::HandleTimeout;
 
+            friend ExtendedState;
             friend HandleExecute;
             friend HandleTimeout;
             friend HandleLoop;
@@ -711,6 +714,8 @@ namespace futoin {
             friend struct nitro_details::ParallelProtector;
             template<typename...>
             friend class NitroSteps;
+            template<typename>
+            friend struct futoin::IMemPool::Allocator;
 
             NitroSteps(
                     IAsyncTool& async_tool,
@@ -718,7 +723,6 @@ namespace futoin {
                 async_tool_(async_tool),
                 impl_(root, async_tool)
             {}
-
             //---
 
         public:
@@ -1260,7 +1264,7 @@ namespace futoin {
             typename Parameters::Queue queue_;
             typename Parameters::TimeoutList timeout_list_;
             typename Parameters::CancelList cancel_list_;
-            typename Parameters::ExtendedList extended_list_;
+            typename Parameters::template ExtendedList<NitroSteps> extended_list_;
             typename Parameters::StackAllocList stack_alloc_list_;
             NitroStepData* last_step_{nullptr};
             StepIndex queue_begin_{0};
