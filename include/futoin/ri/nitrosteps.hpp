@@ -403,17 +403,41 @@ namespace futoin {
             };
 
             template<typename NS>
+            struct HandleAwaitBase
+            {
+                // Actual add() -> func
+                void operator()(IAsyncSteps& asi)
+                {
+                    using std::chrono::milliseconds;
+
+                    auto& ns = static_cast<NS&>(asi);
+                    auto step = ns.last_step_;
+                    auto& ext_state = ns.current_ext_state();
+
+                    // NOTE: reset to shift queue in success()
+                    step->clear_flags(NitroStepData::RepeatStep);
+
+                    // NOTE: Yes, it's resource intensive
+                    if (!ext_state.await_func_(asi, milliseconds{0}, true)) {
+                        step->flags |= NitroStepData::RepeatStep;
+                    }
+                }
+            };
+
+            template<typename NS>
             struct HandleBases : HandleExecuteBase<NS>,
                                  HandleTimeoutBase<NS>,
                                  HandleLoopBase<NS>,
                                  HandleSyncBase<NS>,
-                                 HandleParallelBase<NS>
+                                 HandleParallelBase<NS>,
+                                 HandleAwaitBase<NS>
             {
                 using HandleExecute = HandleExecuteBase<NS>;
                 using HandleTimeout = HandleTimeoutBase<NS>;
                 using HandleLoop = HandleLoopBase<NS>;
                 using HandleSync = HandleSyncBase<NS>;
                 using HandleParallel = HandleParallelBase<NS>;
+                using HandleAwait = HandleAwaitBase<NS>;
             };
 
             // Impl details
@@ -554,6 +578,8 @@ namespace futoin {
                             std::size_t parallel_completed{0};
                             ISync* sync_object;
                         };
+
+                        asyncsteps::AwaitCallback await_func_;
                     };
 
                     using ExtendedList =
@@ -637,6 +663,7 @@ namespace futoin {
             using ExtendedState = typename Parameters::ExtendedState;
 
             using HandleBases = nitro_details::HandleBases<NitroSteps>;
+            using typename HandleBases::HandleAwait;
             using typename HandleBases::HandleExecute;
             using typename HandleBases::HandleLoop;
             using typename HandleBases::HandleParallel;
@@ -648,6 +675,7 @@ namespace futoin {
             friend HandleLoop;
             friend HandleSync;
             friend HandleParallel;
+            friend HandleAwait;
 
             // Special stuff for parallel
             //---
@@ -943,7 +971,6 @@ namespace futoin {
                 auto& step = alloc_step(last_step_);
 
                 HandleLoop& hl = *this;
-
                 step.func_ = std::ref(hl);
 
                 return alloc_extended(step);
@@ -961,9 +988,15 @@ namespace futoin {
                 return ext_state.orig_step_data;
             }
 
-            void await_impl(AwaitPass /*awp*/) noexcept final
+            void await_impl(AwaitPass awp) noexcept final
             {
-                // TODO
+                auto& step = alloc_step(last_step_);
+                auto& ext_state = alloc_extended(step);
+
+                HandleAwait& ha = *this;
+                step.func_ = std::ref(ha);
+
+                awp.move(ext_state.await_func_, ext_state.outer_func_storage);
             }
 
         private:
