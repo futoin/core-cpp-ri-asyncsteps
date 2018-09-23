@@ -1,5 +1,5 @@
 
-=== (next) ===
+=== 1.3.0 (2018-09-23) ===
 FIXED: possible timeout handling issues under rare circumstances
 CHANGED: improved AsyncSteps::loop implementation to avoid implicit step creation
 CHANGED: minor refactoring
