@@ -11,7 +11,13 @@ Please refer to FutoIn/Core/Native C++ API for details of AsyncSteps interface.
 
 - `futoin::ri::AsyncTool` is implementation of `futoin::IAsyncTool` event loop interface.
 - `futoin::ri::AsyncSteps` is implementation of `futoin::IAsyncSteps` FTN12 interface
+- `futoin::ri::NitroSteps` is alternative performance-focused implementation
+- there are the following FTN12 synchronization primitives:
+    - `futoin::ri::Mutex` and `futoin::ri::ThreadlessMutex`
+    - `futoin::ri::Throttle` and `futoin::ri::ThreadlessThrottle`
+    - `futoin::ri::Limiter` and `futoin::ri::ThreadlessLimiter`
 
+#### AsyncSteps
 
 ```c++
 #include <futoin/ri/asyncsteps.hpp>
@@ -79,6 +85,42 @@ void external_event_loop() {
     }
 }
 ```
+
+#### NitroSteps
+
+`NitroSteps` is implemented as template with all internals in pre-allocated buffers with
+only exception for parallel() sub-steps.
+
+It general, case-optimized `NitroSteps` may perform better than the default `AsyncSteps`, but
+there are edge cases where it perform worse. So, `futoin::ri::AsyncSteps` is safe option
+unless case-specific optimization is done.
+
+```c++
+#include <futoin/ri/asynctool.hpp>
+#include <futoin/ri/nitrosteps.hpp>
+
+void inner_thread() {
+    futoin::ri::AsyncTool at;
+    
+    futoin::ri::NitroSteps<> asi_default{at};
+    // Uses the defaults:
+    // futoin::ri::nitro::MaxSteps<16>
+    // futoin::ri::nitro::MaxTimeouts<4>
+    // futoin::ri::nitro::MaxCancels<4>
+    // futoin::ri::nitro::MaxExtended<4>
+    // futoin::ri::nitro::MaxStackAllocs<8>
+    // futoin::ri::nitro::ErrorCodeMaxSize<32>
+
+    futoin::ri::NitroSteps<
+        futoin::ri::nitro::MaxSteps<8>
+        futoin::ri::nitro::MaxExtended<1>
+    > asi_custom_example{at};
+    
+    asi_default.add([](futoin::IAsyncSteps &asi){
+        // ...
+    });
+    asi_default.execute();
+}
 
 #### Mutex
 

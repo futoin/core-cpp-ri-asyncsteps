@@ -659,27 +659,49 @@ namespace futoin {
             template<bool is_root>
             using IsRoot = nitro_details::IsRoot<is_root>;
 
+            /**
+             * @brief Configure maximum numbers of actively set steps.
+             */
             template<StepIndex max_steps>
             using MaxSteps = nitro_details::MaxSteps<max_steps>;
 
+            /**
+             * @brief Configure maximum numbers of active setTimeout() calls.
+             */
             template<StepIndex max_timeouts>
             using MaxTimeouts = nitro_details::MaxTimeouts<max_timeouts>;
 
+            /**
+             * @brief Configure maximum numbers of active setCancel() calls.
+             */
             template<StepIndex max_cancels>
             using MaxCancels = nitro_details::MaxCancels<max_cancels>;
 
+            /**
+             * @brief Configure maximum numbers of active loop(), await() and/or
+             * sync() calls.
+             */
             template<StepIndex max_extended>
             using MaxExtended = nitro_details::MaxExtended<max_extended>;
 
+            /**
+             * @brief Configure maximum numbers of active stack() calls.
+             */
             template<StepIndex max_allocs>
             using MaxStackAllocs = nitro_details::MaxStackAllocs<max_allocs>;
 
+            /**
+             * @brief Configure maximum length of error code.
+             */
             template<StepIndex max_size>
             using ErrorCodeMaxSize = nitro_details::ErrorCodeMaxSize<max_size>;
         } // namespace nitro
 
         /**
          * @brief Nitro-implementation of AsyncSteps
+         *
+         * It's pure template based with almost all internals allocated
+         * statically in root instance. Exception is for parallel sub-steps.
          */
         template<typename... Params>
         class NitroSteps final
