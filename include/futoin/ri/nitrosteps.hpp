@@ -228,6 +228,8 @@ namespace futoin {
                     auto& ext_state = ns.current_ext_state();
 
                     asi.setCancel(&HandleParallelBase::cancel_parallel);
+                    ns.error_code_cache[0] = 0;
+                    ext_state.parallel_completed = 0;
 
                     for (auto& p : ext_state.parallel_items) {
                         p.execute();
@@ -239,7 +241,9 @@ namespace futoin {
                     auto& ns = static_cast<NS&>(asi);
                     auto& ext_state = ns.current_ext_state();
 
-                    ext_state.parallel_items.clear();
+                    if (ns.error_code_cache[0] == 0) {
+                        ext_state.parallel_items.clear();
+                    }
                 }
 
                 void sub_completion() noexcept override
@@ -251,7 +255,6 @@ namespace futoin {
                     ++parallel_completed;
 
                     if (parallel_completed == ext_state.parallel_items.size()) {
-                        ns.error_code_cache[0] = 0;
                         ns.exec_handle_ =
                                 ns.async_tool_.immediate(std::ref(*this));
                     }
@@ -277,6 +280,9 @@ namespace futoin {
                 void operator()() noexcept
                 {
                     auto& ns = static_cast<NS&>(*this);
+
+                    auto& ext_state = ns.current_ext_state();
+                    ext_state.parallel_items.clear();
 
                     if (ns.error_code_cache[0] == 0) {
                         ns.handle_success();

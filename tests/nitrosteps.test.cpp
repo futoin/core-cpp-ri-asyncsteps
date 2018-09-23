@@ -84,6 +84,34 @@ BOOST_AUTO_TEST_CASE(add_success) // NOLINT
     BOOST_CHECK_EQUAL(count, 4U);
 }
 
+BOOST_AUTO_TEST_CASE(add_rotate) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::NitroSteps<ri::nitro::MaxSteps<4>> asi(at);
+
+    std::atomic_size_t count{0};
+
+    asi.add([&](IAsyncSteps&) { ++count; });
+
+    asi.add([&](IAsyncSteps&) { ++count; });
+    asi.add([&](IAsyncSteps& asi) {
+        ++count;
+
+        asi.add([&](IAsyncSteps&) { ++count; });
+
+        asi.add([&](IAsyncSteps&) { ++count; });
+    });
+
+    std::promise<void> done;
+    asi.add([&](IAsyncSteps&) { done.set_value(); });
+
+    BOOST_CHECK(asi);
+    asi.execute();
+
+    done.get_future().wait();
+    BOOST_CHECK_EQUAL(count, 5U);
+}
+
 BOOST_AUTO_TEST_CASE(inner_add_success) // NOLINT
 {
     ri::AsyncTool at;
@@ -825,6 +853,44 @@ BOOST_AUTO_TEST_CASE(error_outer) // NOLINT
     done.get_future().wait();
 
     V required{1, 2, 40, 11, 21, 41, 12, 0};
+    BOOST_CHECK_EQUAL_COLLECTIONS(
+            asi.state<V>("result").begin(),
+            asi.state<V>("result").end(),
+            required.begin(),
+            required.end());
+}
+
+BOOST_AUTO_TEST_CASE(execute_reuse) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::NitroSteps<> asi(at);
+
+    using V = std::vector<int>;
+
+    std::promise<void> done;
+    asi.state()["result"] = V();
+
+    asi.repeat(2, [&](IAsyncSteps& asi, std::size_t) {
+        auto& p = asi.parallel([&](IAsyncSteps&, ErrorCode err) {
+            asi.state<V>("result").push_back(0);
+            std::cout << err << std::endl;
+            BOOST_CHECK(false);
+            done.set_value();
+        });
+
+        p.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(1); });
+        p.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(2); });
+    });
+
+    asi.add([&](IAsyncSteps&) {
+        asi.state<V>("result").push_back(3);
+        done.set_value();
+    });
+    asi.execute();
+
+    done.get_future().wait();
+
+    V required{1, 2, 1, 2, 3};
     BOOST_CHECK_EQUAL_COLLECTIONS(
             asi.state<V>("result").begin(),
             asi.state<V>("result").end(),
