@@ -30,6 +30,7 @@
 #include <cstring>
 #include <deque>
 #include <memory>
+#include <tuple>
 #include <type_traits>
 
 namespace futoin {
@@ -588,6 +589,21 @@ namespace futoin {
                 };
             };
 
+            template<StepIndex max_allocs>
+            struct MaxStackAllocs
+            {
+                template<typename Base>
+                struct Override : Base
+                {
+                    using StackAlloc = std::tuple<
+                            void*,
+                            IAsyncSteps::StackDestroyHandler,
+                            size_t>;
+                    using StackAllocList = std::array<StackAlloc, max_allocs>;
+                    static constexpr auto MAX_STACK_ALLOCS = max_allocs;
+                };
+            };
+
             template<StepIndex max_size>
             struct ErrorCodeMaxSize
             {
@@ -609,6 +625,7 @@ namespace futoin {
                                    MaxTimeouts<4>::Override<DefaultNoop>,
                                    MaxCancels<4>::Override<DefaultNoop>,
                                    MaxExtended<4>::Override<DefaultNoop>,
+                                   MaxStackAllocs<8>::Override<DefaultNoop>,
                                    ErrorCodeMaxSize<32>::Override<DefaultNoop>
             {};
 
@@ -644,6 +661,9 @@ namespace futoin {
 
             template<StepIndex max_extended>
             using MaxExtended = nitro_details::MaxExtended<max_extended>;
+
+            template<StepIndex max_allocs>
+            using MaxStackAllocs = nitro_details::MaxStackAllocs<max_allocs>;
 
             template<StepIndex max_size>
             using ErrorCodeMaxSize = nitro_details::ErrorCodeMaxSize<max_size>;
@@ -838,10 +858,22 @@ namespace futoin {
                     std::size_t object_size,
                     StackDestroyHandler destroy_cb) noexcept final
             {
-                // TODO:
-                (void) object_size;
-                (void) destroy_cb;
-                return nullptr;
+                if (stack_alloc_size_ == stack_alloc_list_.size()) {
+                    FatalMsg() << "Reached maximum number of stack() per "
+                                  "NitroSteps";
+                }
+
+                auto ptr = mem_pool().allocate(object_size, 1);
+                stack_alloc_list_[stack_alloc_size_] =
+                        typename Parameters::StackAlloc(
+                                ptr, destroy_cb, object_size);
+                ++stack_alloc_size_;
+
+                if (last_step_ != nullptr) {
+                    ++(last_step_->stack_allocs_count);
+                }
+
+                return ptr;
             }
 
             using IAsyncSteps::promise;
@@ -1166,7 +1198,31 @@ namespace futoin {
                     extended_list_[current->ext_state].is_used = false;
                 }
 
+                auto& stack_allocs_count = current->stack_allocs_count;
+
+                if (stack_allocs_count != 0) {
+                    stack_dealloc(stack_allocs_count);
+                    stack_allocs_count = 0;
+                }
+
                 current->clear_resource_flags();
+            }
+
+            void stack_dealloc(std::size_t count)
+            {
+                auto& mem_pool = this->mem_pool();
+
+                for (auto i = count; i > 0; --i) {
+                    void* ptr;
+                    StackDestroyHandler destroy_cb;
+                    std::size_t object_size;
+
+                    std::tie(ptr, destroy_cb, object_size) =
+                            stack_alloc_list_[stack_alloc_size_ - 1];
+                    destroy_cb(ptr);
+                    mem_pool.deallocate(ptr, object_size, 1);
+                    --stack_alloc_size_;
+                }
             }
 
             void reset_queue() noexcept
@@ -1174,6 +1230,10 @@ namespace futoin {
                 queue_begin_ = 0;
                 queue_size_ = 0;
                 timeout_size_ = 0;
+
+                if (stack_alloc_size_ != 0) {
+                    stack_dealloc(stack_alloc_size_);
+                }
             }
 
             RawErrorCode cache_error_code(RawErrorCode code) noexcept
@@ -1188,6 +1248,11 @@ namespace futoin {
                 return error_code_cache;
             }
 
+            IMemPool& mem_pool() noexcept
+            {
+                return impl_.get_state().mem_pool();
+            }
+
             IAsyncTool& async_tool_;
             typename Parameters::Impl impl_;
             IAsyncTool::Handle exec_handle_;
@@ -1196,11 +1261,13 @@ namespace futoin {
             typename Parameters::TimeoutList timeout_list_;
             typename Parameters::CancelList cancel_list_;
             typename Parameters::ExtendedList extended_list_;
+            typename Parameters::StackAllocList stack_alloc_list_;
             NitroStepData* last_step_{nullptr};
             StepIndex queue_begin_{0};
             StepIndex queue_size_{0};
             StepIndex timeout_size_{0};
             StepIndex cancel_size_{0};
+            StepIndex stack_alloc_size_{0};
             bool in_exec_{false};
             typename Parameters::ErrorCodeCache error_code_cache;
 
