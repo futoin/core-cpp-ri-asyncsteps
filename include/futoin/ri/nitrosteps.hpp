@@ -1291,19 +1291,19 @@ namespace futoin {
             typename Parameters::Impl impl_;
             IAsyncTool::Handle exec_handle_;
             asyncsteps::NextArgs next_args_;
+            NitroStepData* last_step_{nullptr};
+            bool in_exec_{false};
+            StepIndex queue_begin_{0};
+            StepIndex queue_size_{0};
             typename Parameters::Queue queue_;
+            StepIndex timeout_size_{0};
             typename Parameters::TimeoutList timeout_list_;
+            StepIndex cancel_size_{0};
             typename Parameters::CancelList cancel_list_;
             typename Parameters::template ExtendedList<NitroSteps>
                     extended_list_;
-            typename Parameters::StackAllocList stack_alloc_list_;
-            NitroStepData* last_step_{nullptr};
-            StepIndex queue_begin_{0};
-            StepIndex queue_size_{0};
-            StepIndex timeout_size_{0};
-            StepIndex cancel_size_{0};
             StepIndex stack_alloc_size_{0};
-            bool in_exec_{false};
+            typename Parameters::StackAllocList stack_alloc_list_;
             typename Parameters::ErrorCodeCache error_code_cache;
 
 #if 0
