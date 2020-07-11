@@ -933,6 +933,11 @@ namespace futoin {
                 }
 
                 in_exec_ = false;
+            } catch (const ExtError& e) {
+                in_exec_ = false;
+                state_.catch_trace(e);
+                state_.error_info = e.error_info();
+                next->handle_error(e.what());
             } catch (const std::exception& e) {
                 in_exec_ = false;
                 state_.catch_trace(e);
