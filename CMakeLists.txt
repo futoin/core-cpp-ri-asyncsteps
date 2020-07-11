@@ -26,8 +26,8 @@ project(futoin_asyncsteps
 
 # Options
 #-----
-option(FUTOIN_WITH_TESTS "Build with tests" ON)
-option(FUTOIN_WITH_DOCS "Build documentation" ON)
+option(FUTOIN_WITH_TESTS "Build with tests" OFF)
+option(FUTOIN_WITH_DOCS "Build documentation" OFF)
 
 # Deps
 #-----
@@ -112,7 +112,7 @@ if (FUTOIN_WITH_TESTS)
             PRIVATE ${LIB_PERFTOOLS})
     endif()
 
-    add_test(RIAsyncSteps ${PROJECT_TEST_NAME})
+    add_test(${PROJECT_NAME} ${PROJECT_TEST_NAME})
     
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/bench)
 endif()
