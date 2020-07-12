@@ -283,6 +283,7 @@ namespace futoin {
                 handle_task_queue();
             }
 
+            // NOLINTNEXTLINE(readability-make-member-function-const)
             void poke() noexcept
             {
                 poke_cb();

@@ -139,8 +139,7 @@ namespace futoin {
             ProtectorData(
                     BaseAsyncSteps& root,
                     ProtectorData* parent = nullptr) noexcept :
-                root_(&root),
-                parent_(parent)
+                root_(&root), parent_(parent)
             {}
             ~ProtectorData() noexcept override;
 
@@ -186,7 +185,7 @@ namespace futoin {
                 }
             }
 
-            void sanity_check() noexcept
+            void sanity_check() const noexcept
             {
                 if ((stack_top_ != nullptr) || exec_handle_) {
                     on_invalid_call("Out-of-order use of root AsyncSteps");
@@ -308,7 +307,7 @@ namespace futoin {
                 ProtectorData(root, parent)
             {}
 
-            void sanity_check() noexcept
+            void sanity_check() const noexcept
             {
                 if (root_ == nullptr) {
                     on_invalid_call("Step got invalidated!");
@@ -557,7 +556,7 @@ namespace futoin {
 
             ~ParallelStep() noexcept final = default;
 
-            void sanity_check() noexcept
+            void sanity_check() const noexcept
             {
                 if (root_ == nullptr) {
                     on_invalid_call("Step got invalidated!");
@@ -1151,8 +1150,7 @@ namespace futoin {
 
         //---
         AsyncSteps::AsyncSteps(IAsyncTool& async_tool) noexcept :
-            BaseAsyncSteps(state_, async_tool),
-            state_(async_tool.mem_pool())
+            BaseAsyncSteps(state_, async_tool), state_(async_tool.mem_pool())
         {}
 
         AsyncSteps::~AsyncSteps() noexcept

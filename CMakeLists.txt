@@ -124,11 +124,8 @@ if (FUTOIN_WITH_TESTS)
     #---
     add_custom_target(
         clangtidy-${PROJECT_NAME} ALL
-        COMMAND /usr/bin/clang-tidy-6.0
-        -checks=bugprone-*,cert-*,clang-analyzer-*,clang-analyzer-*,llvm-*,misc-*,modernize-*,performance-*,readability-*,-modernize-make-unique
-        -warnings-as-errors=*
+        COMMAND /usr/bin/clang-tidy-10
         -quiet
-        -format-style=file
         -header-filter=${CMAKE_CURRENT_LIST_DIR}/include
         `echo
         $<JOIN:$<TARGET_PROPERTY:${PROJECT_NAME},SOURCES>,\ >
@@ -140,7 +137,7 @@ if (FUTOIN_WITH_TESTS)
     
     add_custom_target(
         clangformat-${PROJECT_NAME} ALL
-        COMMAND /usr/bin/clang-format-6.0
+        COMMAND /usr/bin/clang-format-10
         -style=file
         -i
         `echo

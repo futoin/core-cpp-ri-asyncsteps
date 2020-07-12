@@ -62,6 +62,7 @@ namespace futoin {
                 asi.add([this](IAsyncSteps& asi) { mutex_.lock(asi); });
                 asi.add([this](IAsyncSteps& asi) { throttle_.lock(asi); });
             }
+            // NOLINTNEXTLINE(bugprone-exception-escape)
             void unlock(IAsyncSteps& asi) noexcept final
             {
                 throttle_.unlock(asi);

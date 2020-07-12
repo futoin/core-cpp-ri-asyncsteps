@@ -32,7 +32,7 @@ namespace futoin {
          * @brief Base implementation of FTN12 Throttle for AsyncSteps
          */
         template<typename OSMutex>
-        class BaseThrottle : public ISync
+        class BaseThrottle final : public ISync
         {
         public:
             using size_type = std::uint32_t;
@@ -96,6 +96,7 @@ namespace futoin {
                     asi.error(errors::DefenseRejected, "Throttle queue limit");
                 }
             }
+            // NOLINTNEXTLINE(bugprone-exception-escape)
             void unlock(IAsyncSteps& asi) noexcept final
             {
                 auto& iter = asi_iter(asi);
@@ -127,8 +128,8 @@ namespace futoin {
             {
                 futoin::string full_key{this_key_};
                 auto sync_id = asi.sync_root_id();
-                full_key += futoin::string{reinterpret_cast<char*>(&sync_id),
-                                           sizeof(sync_id)};
+                full_key += futoin::string{
+                        reinterpret_cast<char*>(&sync_id), sizeof(sync_id)};
 
                 return asi.state<ASInfoIterator>(full_key, queue_.end());
             }

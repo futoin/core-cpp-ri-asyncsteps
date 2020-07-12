@@ -88,6 +88,7 @@ namespace futoin {
                     ++(iter->count);
                 }
             }
+            // NOLINTNEXTLINE(bugprone-exception-escape)
             void unlock(IAsyncSteps& asi) noexcept final
             {
                 auto& iter = asi_iter(asi);
@@ -142,8 +143,8 @@ namespace futoin {
             {
                 futoin::string full_key{this_key_};
                 auto sync_id = asi.sync_root_id();
-                full_key += futoin::string{reinterpret_cast<char*>(&sync_id),
-                                           sizeof(sync_id)};
+                full_key += futoin::string{
+                        reinterpret_cast<char*>(&sync_id), sizeof(sync_id)};
 
                 return asi.state<ASInfoIterator>(full_key, locked_list_.end());
             }

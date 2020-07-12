@@ -55,7 +55,7 @@ namespace futoin {
                     SuccessBlock = (HaveCancel | HaveTimeout | HaveWait),
                 };
 
-                bool is_auto_success() noexcept
+                bool is_auto_success() const noexcept
                 {
                     return (flags & SuccessBlock) == 0;
                 }
@@ -65,22 +65,22 @@ namespace futoin {
                     flags = 0;
                 }
 
-                bool is_step_repeat() noexcept
+                bool is_step_repeat() const noexcept
                 {
                     return is_set(RepeatStep);
                 }
 
-                bool has_time_limit() noexcept
+                bool has_time_limit() const noexcept
                 {
                     return is_set(HaveTimeout);
                 }
 
-                bool has_cancel() noexcept
+                bool has_cancel() const noexcept
                 {
                     return is_set(HaveCancel);
                 }
 
-                bool has_extended() noexcept
+                bool has_extended() const noexcept
                 {
                     return is_set(HaveExtended);
                 }
@@ -90,7 +90,7 @@ namespace futoin {
                     clear_flags(SuccessBlock | HaveExtended);
                 }
 
-                bool is_set(FlagBase on_flags)
+                bool is_set(FlagBase on_flags) const
                 {
                     return (flags & on_flags) == on_flags;
                 }
@@ -298,8 +298,7 @@ namespace futoin {
                 using ParallelItems = typename NS::ExtendedState::ParallelItems;
 
                 ParallelProtector(NS& root, ParallelItems& items) noexcept :
-                    root(root),
-                    parallel_items(items)
+                    root(root), parallel_items(items)
                 {}
 
                 ~ParallelProtector() noexcept override = default;
@@ -345,12 +344,12 @@ namespace futoin {
                 {
                     FatalMsg() << "parallel().handle_success() misuse";
                 }
-                [[noreturn]] void handle_error(ErrorCode /*code*/) final {
+                [[noreturn]] void handle_error(ErrorCode /*code*/) final
+                {
                     FatalMsg() << "parallel().handle_error() misuse";
                 }
 
-                        [[noreturn]] asyncsteps::
-                                NextArgs& nextargs() noexcept final
+                [[noreturn]] asyncsteps::NextArgs& nextargs() noexcept final
                 {
                     FatalMsg() << "parallel().nextargs() misuse";
                 };
@@ -383,8 +382,8 @@ namespace futoin {
                 {
                     FatalMsg() << "parallel().cancel() misuse";
                 }
-                [[noreturn]] std::unique_ptr<IAsyncSteps>
-                newInstance() noexcept final
+                [[noreturn]] std::unique_ptr<IAsyncSteps> newInstance() noexcept
+                        final
                 {
                     FatalMsg() << "parallel().newInstance() misuse";
                 };
@@ -394,13 +393,14 @@ namespace futoin {
                     FatalMsg() << "parallel().operator bool() misuse";
                 };
 
-                [[noreturn]] SyncRootID sync_root_id() const final {
+                [[noreturn]] SyncRootID sync_root_id() const final
+                {
                     FatalMsg() << "parallel().sync_root_id() misuse";
                 }
 
-                        [[noreturn]] void* stack(
-                                std::size_t /*object_size*/,
-                                StackDestroyHandler /*destroy_cb*/) noexcept final
+                [[noreturn]] void* stack(
+                        std::size_t /*object_size*/,
+                        StackDestroyHandler /*destroy_cb*/) noexcept final
                 {
                     FatalMsg() << "parallel().stack() misuse";
                 }
@@ -454,8 +454,8 @@ namespace futoin {
             {
                 struct Impl
                 {
-                    Impl(IParallelRoot& /*ns*/,
-                         IAsyncTool& async_tool) noexcept :
+                    Impl(IParallelRoot& /*ns*/, IAsyncTool& async_tool) noexcept
+                        :
                         state_(async_tool.mem_pool())
                     {}
 
@@ -480,21 +480,24 @@ namespace futoin {
             {
                 struct Impl
                 {
-                    Impl(IParallelRoot& ns,
-                         IAsyncTool& /*async_tool*/) noexcept :
+                    Impl(IParallelRoot& ns, IAsyncTool& /*async_tool*/) noexcept
+                        :
                         root_(&ns)
                     {}
 
+                    // NOLINTNEXTLINE(readability-make-member-function-const)
                     State& get_state() noexcept
                     {
                         return root_->state();
                     }
 
+                    // NOLINTNEXTLINE(readability-make-member-function-const)
                     void sub_completion() noexcept
                     {
                         root_->sub_completion();
                     }
 
+                    // NOLINTNEXTLINE(readability-make-member-function-const)
                     bool sub_onerror(IAsyncSteps& sub, ErrorCode code) noexcept
                     {
                         root_->sub_onerror(sub, code);
@@ -619,6 +622,7 @@ namespace futoin {
                 template<typename Base>
                 struct Override : Base
                 {
+                    // NOLINTNEXTLINE(modernize-avoid-c-arrays)
                     using ErrorCodeCache = char[max_size + 1];
                 };
             };
@@ -750,15 +754,13 @@ namespace futoin {
             NitroSteps(
                     IAsyncTool& async_tool,
                     nitro_details::IParallelRoot& root) noexcept :
-                async_tool_(async_tool),
-                impl_(root, async_tool)
+                async_tool_(async_tool), impl_(root, async_tool)
             {}
             //---
 
         public:
             NitroSteps(IAsyncTool& async_tool) noexcept :
-                async_tool_(async_tool),
-                impl_(*this, async_tool)
+                async_tool_(async_tool), impl_(*this, async_tool)
             {}
 
             NitroSteps(const NitroSteps&) = delete;

@@ -93,8 +93,7 @@ namespace futoin {
 
             template<typename... Args>
             OptimizeableMemPool(IMemPool& root, Args&&... args) noexcept :
-                Base(std::forward<Args>(args)...),
-                root(root)
+                Base(std::forward<Args>(args)...), root(root)
             {}
 
             IMemPool& mem_pool(size_t object_size, bool optimize) noexcept final
