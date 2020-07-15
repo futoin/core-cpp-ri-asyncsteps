@@ -63,8 +63,10 @@ namespace futoin {
             using IAsyncSteps::state;
 
         protected:
-            BaseAsyncSteps(
-                    asyncsteps::State& state, IAsyncTool& async_tool) noexcept;
+            // Just help doxygen
+            using State = asyncsteps::State;
+
+            BaseAsyncSteps(State& state, IAsyncTool& async_tool) noexcept;
 
             StepData& add_step() noexcept final;
             void handle_success() noexcept final;

@@ -41,17 +41,26 @@ endif()
 
 # Sources
 #-----
-file(GLOB_RECURSE FUTOIN_ASYNCSTEPS_SRC
+file(GLOB_RECURSE PROJECT_HDR
     ${CMAKE_CURRENT_LIST_DIR}/include/*.?pp
+)
+file(GLOB_RECURSE PROJECT_SRC
     ${CMAKE_CURRENT_LIST_DIR}/src/*.?pp
 )
 
 # Result objects
 #-----
 find_package(Threads REQUIRED)
-add_library(${PROJECT_NAME} ${FUTOIN_ASYNCSTEPS_SRC})
-add_library(futoin::asyncsteps ALIAS ${PROJECT_NAME})
 
+add_library(${PROJECT_NAME} ${PROJECT_SRC})
+add_library(futoin::asyncsteps ALIAS ${PROJECT_NAME})
+target_sources(${PROJECT_NAME} PUBLIC ${PROJECT_HDR})
+
+target_sources(
+    ${PROJECT_NAME}
+    PUBLIC ${PROJECT_HDR}
+    PRIVATE ${PROJECT_SRC}
+)
 target_link_libraries(${PROJECT_NAME}
     PUBLIC futoin::api Boost::boost
     PRIVATE Threads::Threads)
@@ -83,7 +92,7 @@ endif()
 #--------------------------------------
 if (FUTOIN_WITH_TESTS)
     include(CTest)
-    
+
     enable_testing()
 
     #---
@@ -92,7 +101,7 @@ if (FUTOIN_WITH_TESTS)
         ${CMAKE_CURRENT_LIST_DIR}/tests/*.test.?pp
     )
     add_executable(${PROJECT_TEST_NAME} ${PROJECT_TEST_SRC})
-    
+
     if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_COMPILER_IS_CLANG)
         target_compile_options(${PROJECT_TEST_NAME} PRIVATE
             # see target_compile_features
@@ -113,7 +122,7 @@ if (FUTOIN_WITH_TESTS)
     endif()
 
     add_test(${PROJECT_NAME} ${PROJECT_TEST_NAME})
-    
+
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/bench)
 endif()
 
@@ -126,15 +135,14 @@ if (FUTOIN_WITH_TESTS)
         clangtidy-${PROJECT_NAME} ALL
         COMMAND /usr/bin/clang-tidy-10
         -quiet
-        -header-filter=${CMAKE_CURRENT_LIST_DIR}/include
-        `echo
-        $<JOIN:$<TARGET_PROPERTY:${PROJECT_NAME},SOURCES>,\ >
-        $<JOIN:$<TARGET_PROPERTY:${PROJECT_TEST_NAME},SOURCES>,\ >
+        ${PROJECT_SRC}
         --
+        `echo
         $<JOIN:$<TARGET_PROPERTY:${PROJECT_NAME},COMPILE_OPTIONS>,\ >
         -I$<JOIN:$<TARGET_PROPERTY:${PROJECT_NAME},INCLUDE_DIRECTORIES>,\ -I>`
+        -DFUTOIN_IN_CLANG_TIDY
     )
-    
+
     add_custom_target(
         clangformat-${PROJECT_NAME} ALL
         COMMAND /usr/bin/clang-format-10
@@ -151,7 +159,7 @@ endif()
 #--------------------------------------
 if (FUTOIN_WITH_DOCS)
     find_package(Doxygen REQUIRED dot)
-    
+
     add_custom_target(
         docs-${PROJECT_NAME} ALL
         COMMAND ${CMAKE_COMMAND} -E env "BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}" ${DOXYGEN_EXECUTABLE}
