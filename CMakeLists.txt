@@ -133,7 +133,7 @@ if (FUTOIN_WITH_TESTS)
     #---
     add_custom_target(
         clangtidy-${PROJECT_NAME} ALL
-        COMMAND /usr/bin/clang-tidy-10
+        COMMAND /usr/bin/clang-tidy
         -quiet
         ${PROJECT_SRC}
         --
@@ -145,7 +145,7 @@ if (FUTOIN_WITH_TESTS)
 
     add_custom_target(
         clangformat-${PROJECT_NAME} ALL
-        COMMAND /usr/bin/clang-format-10
+        COMMAND /usr/bin/clang-format
         -style=file
         -i
         `echo

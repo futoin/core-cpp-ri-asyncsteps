@@ -2,7 +2,7 @@
 === (next) ===
 CHANGED: updated to the latest Hunter
 CHANGED: to disable tests & docs by default
-CHANGED: upgraded clang-format/clang-tidy to v10
+CHANGED: upgraded clang-format/clang-tidy to v11
 NEW: futoin::ExtError catching support
 
 === 1.3.1 (2018-09-24) ===
