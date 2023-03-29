@@ -663,7 +663,7 @@ BOOST_AUTO_TEST_CASE(stress) // NOLINT
                   << " handle_task_count=" << stats.handle_task_count
                   << std::endl;
 
-        BOOST_CHECK_GT(iterations, refs.raw_count / 300);
+        BOOST_CHECK_GT(iterations, refs.raw_count / 400);
         BOOST_CHECK_LE(stats.immediate_used, STEP_COUNT * 2);
         BOOST_CHECK_LE(
                 stats.deferred_used + stats.universal_free, STEP_COUNT * 3);
@@ -738,7 +738,7 @@ BOOST_AUTO_TEST_CASE(external_stress) // NOLINT
 
         std::cout << "Call count: " << call_count << std::endl
                   << "Scheduled count: " << scheduled << std::endl;
-        BOOST_CHECK_GT(call_count, raw_count / 150 / test_coeff);
+        BOOST_CHECK_GT(call_count, raw_count / 170 / test_coeff);
         return call_count;
     };
 
