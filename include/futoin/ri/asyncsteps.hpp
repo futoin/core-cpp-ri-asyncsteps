@@ -1,6 +1,6 @@
 //-----------------------------------------------------------------------------
-//   Copyright 2018 FutoIn Project
-//   Copyright 2018 Andrey Galkin
+//   Copyright 2018-2023 FutoIn Project
+//   Copyright 2018-2023 Andrey Galkin
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -54,7 +54,7 @@ namespace futoin {
             operator bool() const noexcept final;
             std::unique_ptr<IAsyncSteps> newInstance() noexcept final;
             SyncRootID sync_root_id() const final;
-            asyncsteps::State& state() noexcept final;
+            asyncsteps::BaseState& state() noexcept final;
             void* stack(
                     std::size_t object_size,
                     StackDestroyHandler destroy_cb) noexcept final;
@@ -62,16 +62,22 @@ namespace futoin {
             using IAsyncSteps::stack;
             using IAsyncSteps::state;
 
+            FutoInAsyncSteps& binary() noexcept override;
+            std::unique_ptr<IAsyncSteps> wrap(
+                    FutoInAsyncSteps&) noexcept override;
+            IAsyncTool& tool() noexcept override;
+
         protected:
             // Just help doxygen
-            using State = asyncsteps::State;
+            using BaseState = asyncsteps::BaseState;
 
-            BaseAsyncSteps(State& state, IAsyncTool& async_tool) noexcept;
+            BaseAsyncSteps(BaseState& state, IAsyncTool& async_tool) noexcept;
 
             StepData& add_step() noexcept final;
             void handle_success() noexcept final;
             void handle_error(ErrorCode /*code*/) final;
-            asyncsteps::LoopState& add_loop() noexcept final;
+            asyncsteps::LoopState& add_loop(
+                    asyncsteps::LoopLabel label) noexcept final;
             StepData& add_sync(ISync& /*obj*/) noexcept final;
             void await_impl(AwaitPass /*awp*/) noexcept final;
 

@@ -27,7 +27,7 @@
 
 using namespace futoin;
 
-BOOST_AUTO_TEST_SUITE(asyncsteps) // NOLINT
+BOOST_AUTO_TEST_SUITE(binarysteps) // NOLINT
 
 const std::chrono::milliseconds TEST_DELAY{100}; // NOLINT
 
@@ -38,8 +38,10 @@ BOOST_AUTO_TEST_SUITE(basic) // NOLINT
 BOOST_AUTO_TEST_CASE(add_success) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
-    auto& root = asi;
+    ri::AsyncSteps asi_base(at);
+    auto& root = asi_base;
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::atomic_size_t count{0};
 
@@ -86,7 +88,9 @@ BOOST_AUTO_TEST_CASE(add_success) // NOLINT
 BOOST_AUTO_TEST_CASE(inner_add_success) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::promise<void> done;
     std::atomic_size_t count{0};
@@ -147,7 +151,9 @@ BOOST_AUTO_TEST_CASE(inner_add_success) // NOLINT
 BOOST_AUTO_TEST_CASE(state) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::promise<void> done;
 
@@ -179,7 +185,10 @@ BOOST_AUTO_TEST_CASE(state) // NOLINT
 BOOST_AUTO_TEST_CASE(handle_errors) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::promise<void> done;
     using V = std::vector<int>;
@@ -255,7 +264,9 @@ BOOST_AUTO_TEST_CASE(handle_errors) // NOLINT
 BOOST_AUTO_TEST_CASE(set_cancel_success) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     using Promise = std::promise<void>;
     std::promise<IAsyncSteps*> wait;
@@ -284,7 +295,9 @@ BOOST_AUTO_TEST_CASE(set_cancel_success) // NOLINT
 BOOST_AUTO_TEST_CASE(wait_external_error) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::promise<IAsyncSteps*> wait;
     std::promise<bool> done;
@@ -325,7 +338,9 @@ BOOST_AUTO_TEST_CASE(wait_external_error) // NOLINT
 BOOST_AUTO_TEST_CASE(set_timeout_success) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::promise<IAsyncSteps*> wait;
     std::promise<void> done;
@@ -353,7 +368,9 @@ BOOST_AUTO_TEST_CASE(set_timeout_success) // NOLINT
 BOOST_AUTO_TEST_CASE(set_timeout_fail) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::promise<void> done;
 
@@ -383,13 +400,16 @@ BOOST_AUTO_TEST_CASE(set_timeout_fail) // NOLINT
 BOOST_AUTO_TEST_CASE(catch_trace) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     using Promise = std::promise<void>;
     Promise done;
 
     size_t count = 0;
-    asi.state().catch_trace = [&](const std::exception&) { ++count; };
+    // NOTE: catch_trace is a feature of the original object, but not a wrapper!
+    asi_base.state().catch_trace = [&](const std::exception&) { ++count; };
     asi.state()["done"] = std::ref(done);
 
     asi.add(
@@ -408,7 +428,9 @@ BOOST_AUTO_TEST_CASE(catch_trace) // NOLINT
 
     asi.execute();
     done.get_future().wait();
-    BOOST_CHECK_EQUAL(count, 2U);
+    // NOTE: it may be called twice when binarysteps are aware of underlying
+    // implementation.
+    BOOST_CHECK_GE(count, 2U);
 }
 
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
@@ -420,7 +442,9 @@ BOOST_AUTO_TEST_SUITE(loops) // NOLINT
 BOOST_AUTO_TEST_CASE(repeat) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::promise<void> done;
 
@@ -439,7 +463,9 @@ BOOST_AUTO_TEST_CASE(repeat) // NOLINT
 BOOST_AUTO_TEST_CASE(loop_break) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     using V = std::vector<int>;
 
@@ -492,7 +518,9 @@ BOOST_AUTO_TEST_CASE(loop_break) // NOLINT
 BOOST_AUTO_TEST_CASE(loop_continue) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     using V = std::vector<int>;
 
@@ -549,7 +577,9 @@ BOOST_AUTO_TEST_CASE(loop_continue) // NOLINT
 BOOST_AUTO_TEST_CASE(loop_error) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     using V = std::vector<int>;
 
@@ -602,7 +632,9 @@ BOOST_AUTO_TEST_CASE(loop_error) // NOLINT
 BOOST_AUTO_TEST_CASE(loop_foreach_vector) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::promise<void> done;
 
@@ -635,7 +667,9 @@ BOOST_AUTO_TEST_CASE(loop_foreach_vector) // NOLINT
 BOOST_AUTO_TEST_CASE(loop_foreach_map) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::promise<void> done;
 
@@ -674,12 +708,15 @@ BOOST_AUTO_TEST_SUITE(parallel) // NOLINT
 BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     using V = std::vector<int>;
 
     std::promise<void> done;
     asi.state()["result"] = V();
+    int val = 3;
 
     auto& p = asi.parallel([&](IAsyncSteps&, ErrorCode err) {
         std::cout << err << std::endl;
@@ -708,7 +745,10 @@ BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
         asi.state<V>("result").push_back(40 + i);
     });
 
-    asi.add([&](IAsyncSteps&) { done.set_value(); });
+    asi.add([&](IAsyncSteps&) {
+        BOOST_CHECK_EQUAL(val, 3);
+        done.set_value();
+    });
     asi.execute();
 
     done.get_future().wait();
@@ -724,7 +764,9 @@ BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
 BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     using V = std::vector<int>;
 
@@ -785,7 +827,9 @@ BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
 BOOST_AUTO_TEST_CASE(error_outer) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     using V = std::vector<int>;
 
@@ -842,7 +886,9 @@ BOOST_AUTO_TEST_SUITE(futures) // NOLINT
 BOOST_AUTO_TEST_CASE(promise_void) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::atomic_size_t count{0};
 
@@ -860,7 +906,9 @@ BOOST_AUTO_TEST_CASE(promise_void) // NOLINT
 BOOST_AUTO_TEST_CASE(promise_res) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::atomic_size_t count{0};
 
@@ -881,7 +929,9 @@ BOOST_AUTO_TEST_CASE(promise_res) // NOLINT
 BOOST_AUTO_TEST_CASE(promise_error) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::atomic_size_t count{0};
 
@@ -905,7 +955,9 @@ BOOST_AUTO_TEST_CASE(promise_error) // NOLINT
 BOOST_AUTO_TEST_CASE(await_void) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::atomic_size_t count{0};
     std::promise<void> ext;
@@ -937,7 +989,9 @@ BOOST_AUTO_TEST_CASE(await_void) // NOLINT
 BOOST_AUTO_TEST_CASE(await_res) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::atomic_size_t count{0};
     std::promise<int> ext;
@@ -972,7 +1026,9 @@ BOOST_AUTO_TEST_CASE(await_res) // NOLINT
 BOOST_AUTO_TEST_CASE(await_cancel) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::atomic_size_t count{0};
     std::promise<int> ext;
@@ -1007,7 +1063,9 @@ BOOST_AUTO_TEST_CASE(await_cancel) // NOLINT
 BOOST_AUTO_TEST_CASE(await_error) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     std::atomic_size_t count{0};
     std::promise<int> ext;
@@ -1067,7 +1125,9 @@ BOOST_AUTO_TEST_CASE(stack_alloc) // NOLINT
 {
     {
         ri::AsyncTool at;
-        ri::AsyncSteps asi(at);
+        ri::AsyncSteps asi_base(at);
+        auto wasi = asi_base.wrap(asi_base.binary());
+        auto& asi = *wasi;
 
         AllocObject::new_count = 0;
         AllocObject::del_count = 0;
@@ -1124,7 +1184,7 @@ constexpr size_t TEST_STEP_INSTANCE_COUNT = 128;
 BOOST_AUTO_TEST_CASE(banner) // NOLINT
 {
     std::cout << "=======================" << std::endl;
-    std::cout << "Starting AsyncSteps SPI" << std::endl;
+    std::cout << "Starting BinarySteps SPI" << std::endl;
     BOOST_CHECK(true);
 }
 
@@ -1139,7 +1199,9 @@ BOOST_AUTO_TEST_CASE(instance_outer) // NOLINT
             TEST_DELAY, [&]() { done.store(true, std::memory_order_release); });
 
     while (!done.load(std::memory_order_consume)) {
-        ri::AsyncSteps asi(at);
+        ri::AsyncSteps asi_base(at);
+        asi_base.wrap(asi_base.binary());
+
         ++count;
     }
 
@@ -1165,7 +1227,9 @@ BOOST_AUTO_TEST_CASE(instance_inner) // NOLINT
         size_t count = 0;
 
         while (!refs.done.load(std::memory_order_consume)) {
-            ri::AsyncSteps asi(refs.at);
+            ri::AsyncSteps asi_base(refs.at);
+            asi_base.wrap(asi_base.binary());
+
             ++count;
         }
 
@@ -1197,7 +1261,9 @@ BOOST_AUTO_TEST_CASE(instance_concurrent_inner) // NOLINT
         size_t count = 0;
 
         while (!refs.done.load(std::memory_order_consume)) {
-            ri::AsyncSteps asi(refs.at);
+            ri::AsyncSteps asi_base(refs.at);
+            asi_base.wrap(asi_base.binary());
+
             ++count;
         }
 
@@ -1208,7 +1274,9 @@ BOOST_AUTO_TEST_CASE(instance_concurrent_inner) // NOLINT
         size_t count = 0;
 
         while (!refs.done.load(std::memory_order_consume)) {
-            ri::AsyncSteps asi(refs.at);
+            ri::AsyncSteps asi_base(refs.at);
+            asi_base.wrap(asi_base.binary());
+
             ++count;
         }
 
@@ -1232,7 +1300,9 @@ BOOST_AUTO_TEST_CASE(instance_outer_add) // NOLINT
             TEST_DELAY, [&]() { done.store(true, std::memory_order_release); });
 
     while (!done.load(std::memory_order_consume)) {
-        ri::AsyncSteps asi(at);
+        ri::AsyncSteps asi_base(at);
+        auto wasi = asi_base.wrap(asi_base.binary());
+        auto& asi = *wasi;
 
         for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
             asi.add([](IAsyncSteps&) {});
@@ -1262,7 +1332,9 @@ BOOST_AUTO_TEST_CASE(instance_inner_add) // NOLINT
         size_t count = 0;
 
         while (!refs.done.load(std::memory_order_consume)) {
-            ri::AsyncSteps asi(refs.at);
+            ri::AsyncSteps asi_base(refs.at);
+            auto wasi = asi_base.wrap(asi_base.binary());
+            auto& asi = *wasi;
 
             for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
                 asi.add([](IAsyncSteps&) {});
@@ -1289,7 +1361,9 @@ BOOST_AUTO_TEST_CASE(instance_outer_loop) // NOLINT
             TEST_DELAY, [&]() { done.store(true, std::memory_order_release); });
 
     while (!done.load(std::memory_order_consume)) {
-        ri::AsyncSteps asi(at);
+        ri::AsyncSteps asi_base(at);
+        auto wasi = asi_base.wrap(asi_base.binary());
+        auto& asi = *wasi;
 
         for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
             asi.loop([](IAsyncSteps&) {});
@@ -1319,7 +1393,9 @@ BOOST_AUTO_TEST_CASE(instance_inner_loop) // NOLINT
         size_t count = 0;
 
         while (!refs.done.load(std::memory_order_consume)) {
-            ri::AsyncSteps asi(refs.at);
+            ri::AsyncSteps asi_base(refs.at);
+            auto wasi = asi_base.wrap(asi_base.binary());
+            auto& asi = *wasi;
 
             for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
                 asi.loop([](IAsyncSteps&) {});
@@ -1346,7 +1422,9 @@ BOOST_AUTO_TEST_CASE(instance_outer_parallel) // NOLINT
             TEST_DELAY, [&]() { done.store(true, std::memory_order_release); });
 
     while (!done.load(std::memory_order_consume)) {
-        ri::AsyncSteps asi(at);
+        ri::AsyncSteps asi_base(at);
+        auto wasi = asi_base.wrap(asi_base.binary());
+        auto& asi = *wasi;
 
         for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
             asi.parallel([](IAsyncSteps&, ErrorCode) {});
@@ -1376,7 +1454,9 @@ BOOST_AUTO_TEST_CASE(instance_inner_parallel) // NOLINT
         size_t count = 0;
 
         while (!refs.done.load(std::memory_order_consume)) {
-            ri::AsyncSteps asi(refs.at);
+            ri::AsyncSteps asi_base(refs.at);
+            auto wasi = asi_base.wrap(asi_base.binary());
+            auto& asi = *wasi;
 
             for (auto i = TEST_STEP_INSTANCE_COUNT; i > 0; --i) {
                 asi.parallel([](IAsyncSteps&, ErrorCode) {});
@@ -1395,7 +1475,9 @@ BOOST_AUTO_TEST_CASE(instance_inner_parallel) // NOLINT
 BOOST_AUTO_TEST_CASE(plain_outer_loop) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     volatile size_t count = 0;
 
@@ -1417,7 +1499,9 @@ BOOST_AUTO_TEST_CASE(plain_outer_loop) // NOLINT
 BOOST_AUTO_TEST_CASE(plain_inner_loop) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     volatile size_t count = 0;
 
@@ -1441,7 +1525,9 @@ BOOST_AUTO_TEST_CASE(plain_inner_loop) // NOLINT
 BOOST_AUTO_TEST_CASE(parallel_outer_loop) // NOLINT
 {
     ri::AsyncTool at;
-    ri::AsyncSteps asi(at);
+    ri::AsyncSteps asi_base(at);
+    auto wasi = asi_base.wrap(asi_base.binary());
+    auto& asi = *wasi;
 
     volatile size_t count = 0;
 
@@ -1471,8 +1557,16 @@ BOOST_AUTO_TEST_CASE(double_outer_loop) // NOLINT
     {
         ri::AsyncTool at1;
         ri::AsyncTool at2;
-        ri::AsyncSteps as1{at1};
-        ri::AsyncSteps as2{at2};
+
+        ri::AsyncSteps asi_base1{at1};
+        std::unique_ptr<IAsyncSteps> wasi1 =
+                std::move(asi_base1.wrap(asi_base1.binary()));
+        IAsyncSteps& as1 = *wasi1;
+
+        ri::AsyncSteps asi_base2{at2};
+        std::unique_ptr<IAsyncSteps> wasi2 =
+                std::move(asi_base2.wrap(asi_base2.binary()));
+        IAsyncSteps& as2 = *wasi2;
     } refs;
 
     volatile size_t count1 = 0;
@@ -1508,7 +1602,9 @@ BOOST_AUTO_TEST_CASE(double_outer_loop_nomutex) // NOLINT
 
         GlobalMemPool::set_thread_default(at.mem_pool());
 
-        ri::AsyncSteps asi{at};
+        ri::AsyncSteps asi_base(at);
+        auto wasi = asi_base.wrap(asi_base.binary());
+        auto& asi = *wasi;
 
         std::promise<void> done;
         at.deferred(std::chrono::milliseconds(1000), [&]() { asi.cancel(); });

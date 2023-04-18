@@ -1,6 +1,6 @@
 //-----------------------------------------------------------------------------
-//   Copyright 2018 FutoIn Project
-//   Copyright 2018 Andrey Galkin
+//   Copyright 2018-2023 FutoIn Project
+//   Copyright 2018-2023 Andrey Galkin
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 
 #include <futoin/fatalmsg.hpp>
 #include <futoin/ri/asyncsteps.hpp>
+#include <futoin/ri/binaryapi.hpp>
 
 #include <cassert>
 #include <cstring>
@@ -56,7 +57,7 @@ namespace futoin {
         //---
         struct SubAsyncSteps final : public BaseAsyncSteps
         {
-            SubAsyncSteps(State& state, IAsyncTool& async_tool) noexcept :
+            SubAsyncSteps(BaseState& state, IAsyncTool& async_tool) noexcept :
                 BaseAsyncSteps(state, async_tool)
             {}
 
@@ -168,7 +169,7 @@ namespace futoin {
             using Queue = std::deque<QueueItem, IMemPool::Allocator<QueueItem>>;
             using StackAlloc = std::tuple<void*, StackDestroyHandler, size_t>;
 
-            Impl(State& state,
+            Impl(BaseState& state,
                  IAsyncTool& async_tool,
                  IMemPool& mem_pool) noexcept :
                 async_tool_(async_tool),
@@ -292,7 +293,7 @@ namespace futoin {
             Queue queue_;
             ProtectorData* stack_top_{nullptr};
             IAsyncTool::Handle exec_handle_;
-            State& state_;
+            BaseState& state_;
             bool in_exec_{false};
 
             IMemPool::Allocator<ExtStepState> ext_data_allocator;
@@ -361,7 +362,7 @@ namespace futoin {
                 on_invalid_call("copyFrom() is not supported in C++");
             }
 
-            State& state() noexcept override
+            BaseState& state() noexcept override
             {
                 return root_->state();
             }
@@ -407,7 +408,7 @@ namespace futoin {
                 return *pls;
             }
 
-            LoopState& add_loop() noexcept override
+            LoopState& add_loop(asyncsteps::LoopLabel label) noexcept override
             {
                 sanity_check();
 
@@ -416,13 +417,23 @@ namespace futoin {
 
                 step->data_.func_ = &Protector::loop_handler;
 
-                return step->alloc_ext_data(true);
+                auto& ls = step->alloc_ext_data(true);
+
+                ls.label = label;
+
+                return ls;
             }
 
             static void loop_handler(IAsyncSteps& asi)
             {
                 auto& that = static_cast<Protector&>(asi);
                 auto& ls = *(that.ext_data_);
+
+                // Cleans up the previous iteration's stack
+                if (that.stack_allocs_count != 0) {
+                    that.root_->impl_->stack_dealloc(that.stack_allocs_count);
+                    that.stack_allocs_count = 0;
+                }
 
                 // NOTE: need to restore after errors iteration
                 that.data_.on_error_ = std::ref(ls);
@@ -530,11 +541,27 @@ namespace futoin {
 
             void* stack(
                     std::size_t object_size,
-                    StackDestroyHandler destroy_cb) noexcept final
+                    StackDestroyHandler destroy_cb) noexcept override
             {
                 ++stack_allocs_count;
                 assert_not_max(stack_allocs_count);
                 return root_->impl_->stack_alloc(object_size, destroy_cb);
+            }
+
+            FutoInAsyncSteps& binary() noexcept override
+            {
+                return IAsyncSteps::stack<BinarySteps>(*this);
+            }
+
+            std::unique_ptr<IAsyncSteps> wrap(
+                    FutoInAsyncSteps& binary_steps) noexcept override
+            {
+                return wrap_binary_steps(binary_steps);
+            }
+
+            IAsyncTool& tool() noexcept override
+            {
+                return root_->impl_->async_tool_;
             }
         };
 
@@ -602,14 +629,18 @@ namespace futoin {
                 return add_substep()->data_;
             }
 
-            LoopState& add_loop() noexcept final
+            LoopState& add_loop(asyncsteps::LoopLabel label) noexcept final
             {
                 sanity_check();
 
                 auto step = add_substep();
                 step->data_.func_ = &Protector::loop_handler;
 
-                return step->alloc_ext_data(true);
+                auto& ls = step->alloc_ext_data(true);
+
+                ls.label = label;
+
+                return ls;
             }
 
             IAsyncSteps& parallel(ErrorPass /*on_error*/) noexcept final
@@ -678,6 +709,31 @@ namespace futoin {
                 }
             }
 
+            void* stack(
+                    std::size_t object_size,
+                    StackDestroyHandler destroy_cb) noexcept final
+            {
+                // NOTE: allocs on parallel step can happen only in scope
+                //       of the parent as the parallel has no body.
+                if (parent_ != nullptr) {
+                    return parent_->stack(object_size, destroy_cb);
+                }
+
+                return root_->stack(object_size, destroy_cb);
+            }
+
+            FutoInAsyncSteps& binary() noexcept override
+            {
+                auto& ret = IAsyncSteps::stack<BinarySteps>(*this);
+                ret.parallel_ = true;
+                return ret;
+            }
+
+            IAsyncTool& tool() noexcept override
+            {
+                return root_->impl_->async_tool_;
+            }
+
         protected:
             static void process_cb(IAsyncSteps& asi)
             {
@@ -742,7 +798,7 @@ namespace futoin {
         //---
 
         BaseAsyncSteps::BaseAsyncSteps(
-                State& state, IAsyncTool& async_tool) noexcept
+                BaseState& state, IAsyncTool& async_tool) noexcept
         {
             auto& mem_pool = async_tool.mem_pool();
             auto p = IMemPool::Allocator<Impl>(mem_pool).allocate(1);
@@ -851,7 +907,8 @@ namespace futoin {
             impl_->handle_cancel();
         }
 
-        LoopState& BaseAsyncSteps::add_loop() noexcept
+        LoopState& BaseAsyncSteps::add_loop(
+                asyncsteps::LoopLabel label) noexcept
         {
             impl_->sanity_check();
 
@@ -860,7 +917,11 @@ namespace futoin {
 
             step->data_.func_ = &Protector::loop_handler;
 
-            return step->alloc_ext_data(true);
+            auto& ls = step->alloc_ext_data(true);
+
+            ls.label = label;
+
+            return ls;
         }
 
         std::unique_ptr<IAsyncSteps> BaseAsyncSteps::newInstance() noexcept
@@ -1143,9 +1204,25 @@ namespace futoin {
             awp.move(ext.await_func_, ext.outer_func_storage);
         }
 
-        State& BaseAsyncSteps::state() noexcept
+        BaseState& BaseAsyncSteps::state() noexcept
         {
             return impl_->state_;
+        }
+
+        FutoInAsyncSteps& BaseAsyncSteps::binary() noexcept
+        {
+            return IAsyncSteps::stack<BinarySteps>(*this);
+        }
+
+        std::unique_ptr<IAsyncSteps> BaseAsyncSteps::wrap(
+                FutoInAsyncSteps& binary_steps) noexcept
+        {
+            return wrap_binary_steps(binary_steps);
+        }
+
+        IAsyncTool& BaseAsyncSteps::tool() noexcept
+        {
+            return impl_->async_tool_;
         }
 
         //---

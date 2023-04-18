@@ -1,6 +1,6 @@
 //-----------------------------------------------------------------------------
-//   Copyright 2018 FutoIn Project
-//   Copyright 2018 Andrey Galkin
+//   Copyright 2018-2023 FutoIn Project
+//   Copyright 2018-2023 Andrey Galkin
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -55,7 +55,9 @@ namespace futoin {
             BaseLimiter(IAsyncTool& async_tool, const Params& prm) noexcept :
                 mutex_(prm.concurrent, prm.max_queue),
                 throttle_(async_tool, prm.rate, prm.period, prm.burst)
-            {}
+            {
+                init_binary_sync(*this);
+            }
 
             void lock(IAsyncSteps& asi) final
             {

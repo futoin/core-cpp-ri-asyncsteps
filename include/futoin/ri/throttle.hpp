@@ -1,6 +1,6 @@
 //-----------------------------------------------------------------------------
-//   Copyright 2018 FutoIn Project
-//   Copyright 2018 Andrey Galkin
+//   Copyright 2018-2023 FutoIn Project
+//   Copyright 2018-2023 Andrey Galkin
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@
 //---
 #include <futoin/iasyncsteps.hpp>
 #include <futoin/iasynctool.hpp>
+#include <futoin/ri/binaryapi.hpp>
 //---
 #include <chrono>
 #include <cstdint>
@@ -60,6 +61,7 @@ namespace futoin {
                 reset_callback_([this]() { this->reset_callback(); })
             {
                 timer_ = async_tool.deferred(period, std::ref(reset_callback_));
+                init_binary_sync(*this);
             }
 
             ~BaseThrottle() noexcept final

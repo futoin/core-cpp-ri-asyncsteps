@@ -1,6 +1,6 @@
 //-----------------------------------------------------------------------------
-//   Copyright 2018 FutoIn Project
-//   Copyright 2018 Andrey Galkin
+//   Copyright 2018-2023 FutoIn Project
+//   Copyright 2018-2023 Andrey Galkin
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -1186,6 +1186,13 @@ BOOST_AUTO_TEST_SUITE(spi) // NOLINT
 
 constexpr size_t TEST_STEP_INSTANCE_COUNT = 128;
 
+BOOST_AUTO_TEST_CASE(banner) // NOLINT
+{
+    std::cout << "=======================" << std::endl;
+    std::cout << "Starting NitroSteps SPI" << std::endl;
+    BOOST_CHECK(true);
+}
+
 BOOST_AUTO_TEST_CASE(instance_outer) // NOLINT
 {
     size_t count = 0;
@@ -1604,6 +1611,12 @@ BOOST_AUTO_TEST_CASE(double_outer_loop_nomutex) // NOLINT
     std::cout << "Double outer iteration nomutex 2: " << count2 << std::endl;
     std::cout << "Double outer iteration nomutex total: " << total << std::endl;
     BOOST_CHECK_GT(total, 1e4);
+}
+
+BOOST_AUTO_TEST_CASE(banner_end) // NOLINT
+{
+    std::cout << "=======================" << std::endl;
+    BOOST_CHECK(true);
 }
 
 BOOST_AUTO_TEST_SUITE_END() // NOLINT

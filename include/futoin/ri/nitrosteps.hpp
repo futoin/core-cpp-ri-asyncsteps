@@ -1,6 +1,6 @@
 //-----------------------------------------------------------------------------
-//   Copyright 2018 FutoIn Project
-//   Copyright 2018 Andrey Galkin
+//   Copyright 2018-2023 FutoIn Project
+//   Copyright 2018-2023 Andrey Galkin
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -25,6 +25,8 @@
 #include <futoin/fatalmsg.hpp>
 #include <futoin/iasyncsteps.hpp>
 #include <futoin/iasynctool.hpp>
+//---
+#include <futoin/ri/binaryapi.hpp>
 //---
 #include <array>
 #include <cstdint>
@@ -137,6 +139,11 @@ namespace futoin {
                     auto& ext_state = ns.current_ext_state();
                     auto& cond = ext_state.cond;
 
+                    if (step->stack_allocs_count != 0) {
+                        ns.stack_dealloc(step->stack_allocs_count);
+                        step->stack_allocs_count = 0;
+                    }
+
                     if (!cond || cond(ext_state)) {
                         step->flags |= NitroStepData::RepeatStep;
                         step->on_error_ = std::ref(*this);
@@ -213,7 +220,7 @@ namespace futoin {
 
             struct IParallelRoot
             {
-                virtual State& state() noexcept = 0;
+                virtual BaseState& state() noexcept = 0;
                 virtual void sub_completion() noexcept = 0;
                 virtual void sub_onerror(
                         IAsyncSteps& sub, ErrorCode code) noexcept = 0;
@@ -314,9 +321,10 @@ namespace futoin {
                     return new_parallel_item().add_step();
                 }
 
-                asyncsteps::LoopState& add_loop() noexcept override
+                asyncsteps::LoopState& add_loop(
+                        asyncsteps::LoopLabel label) noexcept override
                 {
-                    return new_parallel_item().add_loop();
+                    return new_parallel_item().add_loop(label);
                 }
 
                 StepData& add_sync(ISync& obj) noexcept override
@@ -329,7 +337,7 @@ namespace futoin {
                     new_parallel_item().await_impl(cb);
                 }
 
-                [[noreturn]] State& state() noexcept final
+                [[noreturn]] BaseState& state() noexcept final
                 {
                     FatalMsg() << "parallel().state() misuse";
                 }
@@ -403,6 +411,22 @@ namespace futoin {
                         StackDestroyHandler /*destroy_cb*/) noexcept final
                 {
                     FatalMsg() << "parallel().stack() misuse";
+                }
+
+                [[noreturn]] FutoInAsyncSteps& binary() noexcept override
+                {
+                    FatalMsg() << "parallel().binary() misuse";
+                }
+
+                [[noreturn]] std::unique_ptr<IAsyncSteps> wrap(
+                        FutoInAsyncSteps& /*binary_steps*/) noexcept override
+                {
+                    FatalMsg() << "parallel().wrap() misuse";
+                }
+
+                [[noreturn]] IAsyncTool& tool() noexcept override
+                {
+                    FatalMsg() << "parallel().tool() misuse";
                 }
 
                 NS& root;
@@ -486,7 +510,7 @@ namespace futoin {
                     {}
 
                     // NOLINTNEXTLINE(readability-make-member-function-const)
-                    State& get_state() noexcept
+                    BaseState& get_state() noexcept
                     {
                         return root_->state();
                     }
@@ -885,7 +909,7 @@ namespace futoin {
                 return reinterpret_cast<SyncRootID>(this);
             }
 
-            State& state() noexcept final
+            BaseState& state() noexcept final
             {
                 return impl_.get_state();
             }
@@ -910,6 +934,22 @@ namespace futoin {
                 }
 
                 return ptr;
+            }
+
+            FutoInAsyncSteps& binary() noexcept override
+            {
+                return IAsyncSteps::stack<BinarySteps>(*this);
+            }
+
+            std::unique_ptr<IAsyncSteps> wrap(
+                    FutoInAsyncSteps& binary_steps) noexcept override
+            {
+                return wrap_binary_steps(binary_steps);
+            }
+
+            IAsyncTool& tool() noexcept override
+            {
+                return async_tool_;
             }
 
             using IAsyncSteps::promise;
@@ -1034,14 +1074,17 @@ namespace futoin {
                 }
             }
 
-            asyncsteps::LoopState& add_loop() noexcept final
+            asyncsteps::LoopState& add_loop(
+                    asyncsteps::LoopLabel label) noexcept final
             {
                 auto& step = alloc_step(last_step_);
 
                 HandleLoop& hl = *this;
                 step.func_ = std::ref(hl);
 
-                return alloc_extended(step);
+                auto& ls = alloc_extended(step);
+                ls.label = label;
+                return ls;
             }
 
             StepData& add_sync(ISync& obj) noexcept final

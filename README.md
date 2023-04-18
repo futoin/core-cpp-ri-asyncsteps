@@ -92,7 +92,7 @@ void external_event_loop() {
 only exception for parallel() sub-steps.
 
 It general, case-optimized `NitroSteps` may perform better than the default `AsyncSteps`, but
-there are edge cases where it perform worse. So, `futoin::ri::AsyncSteps` is safe option
+there are edge cases where it may performs worse. So, `futoin::ri::AsyncSteps` is safe option
 unless case-specific optimization is done.
 
 ```c++

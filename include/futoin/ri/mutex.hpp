@@ -1,6 +1,6 @@
 //-----------------------------------------------------------------------------
-//   Copyright 2018 FutoIn Project
-//   Copyright 2018 Andrey Galkin
+//   Copyright 2018-2023 FutoIn Project
+//   Copyright 2018-2023 Andrey Galkin
 //
 //   Licensed under the Apache License, Version 2.0 (the "License");
 //   you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@
 #define FUTOIN_RI_MUTEX_HPP
 //---
 #include <futoin/iasyncsteps.hpp>
+#include <futoin/ri/binaryapi.hpp>
 //---
 #include <cstdint>
 #include <list>
@@ -54,7 +55,9 @@ namespace futoin {
                 max_(max),
                 queue_max_(queue_max),
                 this_key_(key_from_pointer(this))
-            {}
+            {
+                init_binary_sync(*this);
+            }
 
             void lock(IAsyncSteps& asi) final
             {
