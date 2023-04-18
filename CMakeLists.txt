@@ -21,7 +21,7 @@ endif()
 #--------------------------------------
 
 project(futoin_asyncsteps
-        VERSION "1.3.2" # AUTO-REPLACE
+        VERSION "1.4.0" # AUTO-REPLACE
         LANGUAGES CXX)
 
 # Options
