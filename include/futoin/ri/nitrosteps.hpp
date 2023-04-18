@@ -1317,7 +1317,19 @@ namespace futoin {
 
             RawErrorCode cache_error_code(RawErrorCode code) noexcept
             {
+#ifdef __clang
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wstringop-truncation"
+#elif defined(__GNUC__)
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wstringop-truncation"
+#endif
                 strncpy(error_code_cache, code, sizeof(error_code_cache));
+#ifdef __clang
+#    pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#    pragma GCC diagnostic pop
+#endif
 
                 if (error_code_cache[sizeof(error_code_cache) - 1] != 0) {
                     FatalMsg()

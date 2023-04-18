@@ -359,7 +359,7 @@ namespace futoin {
         const ::FutoInSyncAPI binary_sync_api{{{
                 // Index 0 - lock
                 [](FutoInAsyncSteps* bsi, FutoInSync* sync) {
-                    IAsyncSteps* asi;
+                    IAsyncSteps* asi = nullptr;
                     try {
                         auto& isync = static_cast<ISync&>(*sync);
 

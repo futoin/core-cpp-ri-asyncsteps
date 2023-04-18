@@ -1,3 +1,6 @@
+=== (next) ===
+FIXED: false warnings on some compilers
+
 === 1.4.0 (2023-04-18) ===
 FIXED: AsyncSteps.stack() overflow in loops
 NEW: FTN12 v1.14 Binary AsyncSteps interface support
