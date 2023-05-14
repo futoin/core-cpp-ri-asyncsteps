@@ -37,5 +37,6 @@ namespace bench_param {
     constexpr unsigned Simple_COUNT = 1e6;
     constexpr unsigned Parallel_COUNT = 1e6;
     constexpr unsigned Parallel_LIMIT = 3e4;
+    constexpr unsigned ThreadParallel_LIMIT = 1e4;
     constexpr unsigned ParallelLoop_COUNT = 1e7;
 }

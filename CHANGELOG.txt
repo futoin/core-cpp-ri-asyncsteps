@@ -1,3 +1,6 @@
+=== (next) ===
+NEW: extended benchmark with C++ thread comparison
+
 === 1.4.1 (2023-04-18) ===
 FIXED: false warnings on some compilers
 

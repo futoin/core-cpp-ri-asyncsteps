@@ -35,6 +35,11 @@ target_link_libraries(FutoInNitroStepsBench
         futoin::asyncsteps
         Boost::timer Boost::system Boost::chrono Boost::boost)
 
+add_executable(StdThreadBench ${CMAKE_CURRENT_LIST_DIR}/std_thread.bench.cpp)
+target_link_libraries(StdThreadBench
+    PRIVATE
+        Boost::timer Boost::system Boost::chrono Boost::boost pthread)
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_COMPILER_IS_CLANG)
     target_compile_options(BoostFiberBench PRIVATE ${FUTOIN_BENCH_GCCLIKE_COMMON_FLAGS})
     target_compile_options(FutoInAsyncStepsBench PRIVATE ${FUTOIN_BENCH_GCCLIKE_COMMON_FLAGS})
