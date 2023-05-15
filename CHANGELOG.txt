@@ -1,4 +1,4 @@
-=== (next) ===
+=== 1.4.2 (2023-05-15) ===
 CHANGED: dependency maintenance
 NEW: extended benchmark with C++ thread comparison
 
