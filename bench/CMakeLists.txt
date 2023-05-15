@@ -3,7 +3,6 @@ cmake_minimum_required(VERSION 3.2 FATAL_ERROR)
 
 project(futoin_asyncsteps_bench LANGUAGES CXX)
 
-
 hunter_add_package(Boost COMPONENTS chrono context fiber system timer)
 find_package(Boost CONFIG REQUIRED chrono context fiber system timer)
 find_package(Threads REQUIRED)
