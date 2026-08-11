@@ -30,7 +30,7 @@
     boost::timer::cpu_timer timer; \
     FTN_BENCH(Simple); \
     FTN_BENCH(Parallel); \
-    FTN_BENCH(ParallelLoop); \
+    FTN_BENCH(ParallelWaitLoop); \
     
 
 namespace bench_param {
@@ -38,5 +38,5 @@ namespace bench_param {
     constexpr unsigned Parallel_COUNT = 1e6;
     constexpr unsigned Parallel_LIMIT = 3e4;
     constexpr unsigned ThreadParallel_LIMIT = 1e4;
-    constexpr unsigned ParallelLoop_COUNT = 1e7;
+    constexpr unsigned ParallelWaitLoop_COUNT = 1e7;
 }

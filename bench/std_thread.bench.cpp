@@ -70,7 +70,7 @@ void Parallel_bench(unsigned count) {
     }
 }
 
-void ParallelLoop_bench(unsigned count) {
+void ParallelWaitLoop_bench(unsigned count) {
     std::mutex mtx;
     std::deque<std::thread> threads;
     std::deque<std::promise<int>> promises;

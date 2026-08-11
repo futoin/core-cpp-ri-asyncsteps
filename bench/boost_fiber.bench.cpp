@@ -17,6 +17,7 @@
 
 #include "./common.hpp"
 
+#include <atomic>
 // NOTE: leads to compilation failure on Boost 1.67
 //#define BOOST_FIBERS_NO_ATOMICS
 #include <boost/fiber/all.hpp>
@@ -72,13 +73,13 @@ void Parallel_bench(unsigned count) {
     }
 }
 
-void ParallelLoop_bench(unsigned count) {
+void ParallelWaitLoop_bench(unsigned count) {
     boost::fibers::protected_fixedsize_stack stack_alloc;
 
     std::deque<boost::fibers::fiber> fibers;
     std::deque<boost::fibers::promise<int>> promises;
     
-    int remaining = count;
+    std::atomic<int> remaining{int(count)};
 
     // NOTE: there is OS limit for memory maps used for fiber stacks
     //       so, we run small count for count times

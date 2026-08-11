@@ -17,6 +17,7 @@
 
 #include "./common.hpp"
 
+#include <atomic>
 #include <future>
 
 #include <futoin/ri/asynctool.hpp>
@@ -89,7 +90,7 @@ void Parallel_bench(unsigned count) {
     }
 }
 
-void ParallelLoop_bench(unsigned count) {
+void ParallelWaitLoop_bench(unsigned count) {
     ri::AsyncTool::Params prm;
     prm.mempool_mutex = false;
     ri::AsyncTool at{[]() {}, prm};
@@ -97,7 +98,7 @@ void ParallelLoop_bench(unsigned count) {
     std::deque<TunedNitroStep> steps;
     std::deque<IAsyncSteps*> waiting;
     
-    int remaining = count;
+    std::atomic<int> remaining{int(count)};
     
     // NOTE: see boost::fibers benchmark for explanations
     //       of its limitations.
@@ -115,10 +116,6 @@ void ParallelLoop_bench(unsigned count) {
             });
         });
         asi.execute();
-            
-        bool res = at.iterate().have_work;
-        assert(!res);
-        (void) res;
     }
     
     TunedNitroStep f(at);
@@ -127,8 +124,8 @@ void ParallelLoop_bench(unsigned count) {
         if (remaining <= 0) {
             asi.breakLoop();
         }
-        
-        if (!waiting.empty() && (remaining > 0)) {
+
+        while (!waiting.empty()) {
             waiting.front()->success(1);
             waiting.pop_front();
         }
