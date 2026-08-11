@@ -172,14 +172,10 @@ namespace futoin {
                     }
 
                     if (wbsi.waiting_) {
-                        try {
-                            asi.error(code, info);
-                        } catch (const futoin::Error&) {
-                            // pass
-                        }
+                        asi.errorNoThrow(code, info ? info : "");
                     } else {
                         wbsi.last_error_ = code;
-                        wbsi.last_error_info_ = info;
+                        wbsi.last_error_info_ = info ? info : "";
                     }
                 },
                 // Index 6 - setTimeout
@@ -234,19 +230,20 @@ namespace futoin {
                 },
                 // Index 11 - breakLoop
                 [](FutoInAsyncSteps* bsi, const char* label) -> void {
-                    try {
-                        static_cast<BinarySteps*>(bsi)->asi.breakLoop(label);
-                    } catch (const futoin::Error& e) {
-                        static_cast<BinarySteps*>(bsi)->last_error_ = e.what();
-                    }
+                    static_cast<BinarySteps*>(bsi)->asi.breakLoopNoThrow(label);
+                    static_cast<BinarySteps*>(bsi)->last_error_ =
+                            errors::LoopBreak;
+                    static_cast<BinarySteps*>(bsi)->last_error_info_ =
+                            label ? label : "";
                 },
                 // Index 12 - continueLoop
                 [](FutoInAsyncSteps* bsi, const char* label) -> void {
-                    try {
-                        static_cast<BinarySteps*>(bsi)->asi.continueLoop(label);
-                    } catch (const futoin::Error& e) {
-                        static_cast<BinarySteps*>(bsi)->last_error_ = e.what();
-                    }
+                    static_cast<BinarySteps*>(bsi)->asi.continueLoopNoThrow(
+                            label);
+                    static_cast<BinarySteps*>(bsi)->last_error_ =
+                            errors::LoopCont;
+                    static_cast<BinarySteps*>(bsi)->last_error_info_ =
+                            label ? label : "";
                 },
                 // Index 13 - execute
                 [](FutoInAsyncSteps* bsi,
@@ -737,17 +734,17 @@ namespace futoin {
             }
             void handle_error(ErrorCode error_code) override
             {
+                const auto& error_info = state().error_info;
+                const auto* label =
+                        error_info.empty() ? nullptr : error_info.c_str();
+
                 if (error_code == errors::LoopBreak) {
-                    binary_steps_.api->breakLoop(
-                            &binary_steps_, state().error_loop_label);
+                    binary_steps_.api->breakLoop(&binary_steps_, label);
                 } else if (error_code == errors::LoopCont) {
-                    binary_steps_.api->continueLoop(
-                            &binary_steps_, state().error_loop_label);
+                    binary_steps_.api->continueLoop(&binary_steps_, label);
                 } else {
                     binary_steps_.api->handle_error(
-                            &binary_steps_,
-                            error_code,
-                            state().error_info.c_str());
+                            &binary_steps_, error_code, label);
                 }
             }
             asyncsteps::NextArgs& nextargs() noexcept override

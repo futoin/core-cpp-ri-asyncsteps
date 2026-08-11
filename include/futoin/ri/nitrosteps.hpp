@@ -161,17 +161,19 @@ namespace futoin {
                     auto& ext_state = ns.current_ext_state();
 
                     if (err == errors::LoopCont) {
-                        auto error_label = asi.state().error_loop_label;
+                        const auto& error_label = asi.state().error_info;
 
-                        if ((error_label == nullptr)
-                            || (strcmp(error_label, ext_state.label) == 0)) {
+                        if (error_label.empty()
+                            || (strcmp(error_label.c_str(), ext_state.label)
+                                == 0)) {
                             asi.success();
                         }
                     } else if (err == errors::LoopBreak) {
-                        auto error_label = asi.state().error_loop_label;
+                        const auto& error_label = asi.state().error_info;
 
-                        if ((error_label == nullptr)
-                            || (strcmp(error_label, ext_state.label) == 0)) {
+                        if (error_label.empty()
+                            || (strcmp(error_label.c_str(), ext_state.label)
+                                == 0)) {
                             step->clear_flags(NitroStepData::RepeatStep);
                             asi.success();
                         }

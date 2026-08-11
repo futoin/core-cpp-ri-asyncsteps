@@ -312,15 +312,12 @@ BOOST_AUTO_TEST_CASE(wait_external_error) // NOLINT
             },
             [&](IAsyncSteps& asi, ErrorCode err) {
                 ++count;
-                done.set_value(true);
                 BOOST_CHECK_EQUAL(err, "SomeError");
                 asi.state<bool>("ok", true);
                 asi.success();
             });
     asi.add([&](IAsyncSteps& asi) {
-        if (!asi.state<bool>("ok", false)) {
-            done.set_value(false);
-        }
+        done.set_value(asi.state<bool>("ok", false));
     });
 
     asi.execute();

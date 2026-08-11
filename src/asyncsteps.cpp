@@ -91,17 +91,17 @@ namespace futoin {
             void operator()(IAsyncSteps& asi, ErrorCode err)
             {
                 if (std::strcmp(err, errors::LoopCont) == 0) {
-                    auto error_label = asi.state().error_loop_label;
+                    const auto& error_label = asi.state().error_info;
 
-                    if ((error_label == nullptr)
-                        || (strcmp(error_label, label) == 0)) {
+                    if (error_label.empty()
+                        || (strcmp(error_label.c_str(), label) == 0)) {
                         asi.success();
                     }
                 } else if (std::strcmp(err, errors::LoopBreak) == 0) {
-                    auto error_label = asi.state().error_loop_label;
+                    const auto& error_label = asi.state().error_info;
 
-                    if ((error_label == nullptr)
-                        || (strcmp(error_label, label) == 0)) {
+                    if (error_label.empty()
+                        || (strcmp(error_label.c_str(), label) == 0)) {
                         continue_loop = false;
                         asi.success();
                     }
