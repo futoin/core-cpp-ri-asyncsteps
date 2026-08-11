@@ -23,6 +23,7 @@
 #include <future>
 #include <iostream>
 #include <list>
+#include <thread>
 
 BOOST_AUTO_TEST_SUITE(asynctool) // NOLINT
 

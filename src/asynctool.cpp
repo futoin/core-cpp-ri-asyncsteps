@@ -273,7 +273,7 @@ namespace futoin {
                     }
 
                     {
-                        lock_guard lt(handle_mutex);
+                        const lock_guard lt(handle_mutex);
                         poke();
                     }
 
@@ -315,7 +315,7 @@ namespace futoin {
             void add_handle_task(HandleTask& task)
             {
                 for (bool done = false;;) {
-                    lock_guard lock(handle_mutex);
+                    const lock_guard lock(handle_mutex);
                     done = handle_tasks.push(&task);
 
                     if (done) {
@@ -387,18 +387,19 @@ namespace futoin {
         };
 
         AsyncTool::AsyncTool(const Params& params) noexcept :
-            impl_(new Impl(params))
+            impl_(new(std::nothrow) Impl(params))
         {
             auto& poke_var = impl_->poke_var;
             impl_->poke_cb = [&]() { poke_var.notify_one(); };
 
-            impl_->thread.reset(new std::thread{&Impl::process, impl_.get()});
+            impl_->thread.reset(new (std::nothrow) std::thread{
+                    &Impl::process, impl_.get()});
             impl_->reactor_thread_id = impl_->thread->get_id();
         }
 
         AsyncTool::AsyncTool(
                 PokeCallback poke_external, const Params& params) noexcept :
-            impl_(new Impl(params))
+            impl_(new(std::nothrow) Impl(params))
         {
             impl_->poke_cb = std::move(poke_external);
             impl_->reactor_thread_id = std::this_thread::get_id();
@@ -460,7 +461,7 @@ namespace futoin {
             if (delay < std::chrono::milliseconds(100)) {
                 FatalMsg()
                         << "deferred AsyncTool calls are designed for timeouts!"
-                        << std::endl
+                        << "\n"
                         << "Avoid using it for too short delays (<100ms).";
             }
 
@@ -553,6 +554,7 @@ namespace futoin {
             return {have_work, delay};
         }
 
+        // NOLINTNEXTLINE(readability-function-cognitive-complexity)
         void AsyncTool::Impl::iterate() noexcept
         {
             forget_now();

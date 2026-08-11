@@ -636,7 +636,7 @@ namespace futoin {
 
             UniqueAsyncPtr newInstance() noexcept override
             {
-                return UniqueAsyncPtr{new BinaryStepsWrapper(
+                return UniqueAsyncPtr{new (std::nothrow) BinaryStepsWrapper(
                         binary_steps_.api->newInstance(&binary_steps_))};
             }
 

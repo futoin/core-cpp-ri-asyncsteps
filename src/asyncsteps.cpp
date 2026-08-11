@@ -42,7 +42,7 @@ namespace futoin {
             m << "Invalid AsyncSteps interface usage!";
 
             if (extra_error != nullptr) {
-                m.stream() << std::endl << extra_error;
+                m.stream() << "\n" << extra_error;
             }
         }
 
@@ -240,7 +240,7 @@ namespace futoin {
             void sub_queue_free(ProtectorData* current)
             {
                 auto sub_queue_begin =
-                        queue_.begin() + current->sub_queue_start;
+                        queue_.begin() + long(current->sub_queue_start);
                 auto sub_queue_end = queue_.end();
 
                 for (auto iter = sub_queue_begin; iter != sub_queue_end;
@@ -927,7 +927,7 @@ namespace futoin {
         std::unique_ptr<IAsyncSteps> BaseAsyncSteps::newInstance() noexcept
         {
             return std::unique_ptr<IAsyncSteps>(
-                    new ri::AsyncSteps(impl_->async_tool_));
+                    new (std::nothrow) ri::AsyncSteps(impl_->async_tool_));
         }
 
         void* BaseAsyncSteps::stack(
@@ -1094,7 +1094,8 @@ namespace futoin {
                     current->on_cancel_ = nullptr;
                 }
 
-                ErrorHandler on_error{std::move(current->data_.on_error_)};
+                const ErrorHandler on_error{
+                        std::move(current->data_.on_error_)};
 
                 if (on_error) {
                     try {
