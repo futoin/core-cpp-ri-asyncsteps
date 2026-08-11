@@ -1,10 +1,10 @@
 
-cmake_minimum_required(VERSION 3.2 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
 
 project(futoin_asyncsteps_bench LANGUAGES CXX)
 
-hunter_add_package(Boost COMPONENTS chrono context fiber system timer)
-find_package(Boost CONFIG REQUIRED chrono context fiber system timer)
+hunter_add_package(Boost COMPONENTS atomic chrono context fiber filesystem system timer)
+find_package(Boost CONFIG REQUIRED atomic chrono context fiber filesystem system timer)
 find_package(Threads REQUIRED)
 
 set(FUTOIN_BENCH_GCCLIKE_COMMON_FLAGS
