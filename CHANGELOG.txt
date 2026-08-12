@@ -1,4 +1,5 @@
 === (next) ===
+CHANGED: updated to FutoIn Public license
 CHANGED: new burst execution of single instance steps for better cache data locality
 FIXED: NoThrow() API edge cases and spec design principles violation
 
