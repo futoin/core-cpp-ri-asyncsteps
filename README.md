@@ -20,12 +20,8 @@ All-in-one FutoIn Core C++:
 
 ### Usage
 
-This Reference Implementations depends on common
-[FutoIn Core C++ API](https://codeberg.org/futoin/core-cpp-api). The business
-logic must be written against the API only, while this reference implementation
-is only an engine.
-
-Please refer to FutoIn/Core/Native C++ API for details of AsyncSteps interface.
+Please check [FutoIn Core C++ API][https://codeberg.org/futoin/core-cpp-api]
+for example of usage.
 
 #### Basics
 
