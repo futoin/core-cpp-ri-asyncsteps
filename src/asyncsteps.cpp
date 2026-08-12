@@ -72,8 +72,7 @@ namespace futoin {
         {
             ExtStepState(IMemPool& mem_pool, bool is_loop) :
                 continue_loop(is_loop),
-                items_{ParallelItems::allocator_type(mem_pool)},
-                error_code_{futoin::string::allocator_type(mem_pool)}
+                items_{ParallelItems::allocator_type(mem_pool)}
             {}
 
             // Loop stuff
@@ -118,7 +117,6 @@ namespace futoin {
                     list<SubAsyncSteps, IMemPool::Allocator<SubAsyncSteps>>;
             ParallelItems items_;
             std::size_t completed_{0};
-            futoin::string error_code_;
 
             // Await step stuff
             //--------------------
@@ -176,6 +174,7 @@ namespace futoin {
                 mem_pool_(mem_pool),
                 queue_{Queue::allocator_type(mem_pool)},
                 state_(state),
+                error_code_{futoin::string::allocator_type(mem_pool)},
                 ext_data_allocator(mem_pool)
             {}
 
@@ -196,7 +195,12 @@ namespace futoin {
             void schedule_exec() noexcept;
             void execute_handler() noexcept;
             void handle_success(ProtectorData* current) noexcept;
+            void handle_success_sync(ProtectorData* current) noexcept;
             void handle_error(ProtectorData* current, ErrorCode code) noexcept;
+            void handle_error_sync(
+                    ProtectorData* current,
+                    ErrorCode code,
+                    bool unwind) noexcept;
             void handle_cancel() noexcept;
             void operator()() noexcept
             {
@@ -294,6 +298,7 @@ namespace futoin {
             ProtectorData* stack_top_{nullptr};
             IAsyncTool::Handle exec_handle_;
             BaseState& state_;
+            futoin::string error_code_;
             bool in_exec_{false};
 
             IMemPool::Allocator<ExtStepState> ext_data_allocator;
@@ -692,7 +697,7 @@ namespace futoin {
                     }
                 }
 
-                ext_data_->error_code_ = err;
+                root_->impl_->error_code_ = err;
                 limit_handle_ =
                         root_->impl_->async_tool_.immediate(std::ref(*this));
             }
@@ -700,12 +705,13 @@ namespace futoin {
             // Dirty hack: final completion
             void operator()() noexcept
             {
-                auto& error_code = ext_data_->error_code_;
+                auto& error_code = root_->impl_->error_code_;
 
                 if (error_code.empty()) {
-                    root_->impl_->handle_success(this);
+                    root_->impl_->handle_success_sync(this);
                 } else {
-                    root_->impl_->handle_error(this, error_code.c_str());
+                    root_->impl_->handle_error_sync(
+                            this, error_code.c_str(), true);
                 }
             }
 
@@ -756,7 +762,7 @@ namespace futoin {
                 auto& that = static_cast<ParallelStep&>(asi);
                 auto& ext = that.ext_data_;
 
-                if (ext->error_code_.empty()) {
+                if (that.root_->impl_->error_code_.empty()) {
                     // Not caused by inner error
                     ext->items_.clear();
                 }
@@ -944,64 +950,64 @@ namespace futoin {
                 on_invalid_call("AsyncSteps instance is already executed.");
             }
 
-            exec_handle_ = async_tool_.immediate(std::ref(*this));
+            if (!in_exec_) {
+                exec_handle_ = async_tool_.immediate(std::ref(*this));
+            }
         }
 
         void BaseAsyncSteps::Impl::execute_handler() noexcept
         {
+            in_exec_ = true;
             exec_handle_.reset();
-            ProtectorDataHolder* next_data = nullptr;
 
-            while (stack_top_ != nullptr) {
-                auto current = stack_top_;
+            bool sched_exec = true;
 
-                if (is_sub_queue_empty(current)) {
-                    stack_top_ = current->parent_;
-                    sub_queue_free(current);
-                } else {
-                    next_data = &(queue_[current->sub_queue_front]);
+            do {
+                auto* next = stack_top_;
+
+                if (next != nullptr) {
+                    auto* next_data = &(queue_[next->sub_queue_front]);
+                    next = reinterpret_cast<ProtectorData*>(next_data);
+                } else if (queue_.empty()) {
                     break;
-                }
-            }
-
-            if (next_data == nullptr) {
-                if (queue_.empty()) {
-                    return;
+                } else {
+                    auto* next_data = &(queue_.front());
+                    next = reinterpret_cast<ProtectorData*>(next_data);
                 }
 
-                next_data = &(queue_.front());
-            }
+                const auto qs = queue_.size();
+                next->sub_queue_start = qs;
+                next->sub_queue_front = qs;
 
-            auto next = reinterpret_cast<ProtectorData*>(next_data);
+                stack_top_ = next;
 
-            const auto qs = queue_.size();
-            next->sub_queue_start = qs;
-            next->sub_queue_front = qs;
+                try {
+                    next->data_.func_(*next);
 
-            stack_top_ = next;
-
-            try {
-                in_exec_ = true;
-                next->data_.func_(*next);
-
-                if (stack_top_ != next) {
-                    // pass
-                } else if (!is_sub_queue_empty(next)) {
-                    schedule_exec();
-                } else if (!next->on_cancel_ && !next->limit_handle_) {
-                    next->handle_success();
+                    // NOLINTNEXTLINE(bugprone-branch-clone)
+                    if (stack_top_ != next) {
+                        // explicit success()
+                    } else if (!error_code_.empty()) {
+                        handle_error_sync(next, error_code_.c_str(), true);
+                    } else if (!is_sub_queue_empty(next)) {
+                        // implicit success with substeps
+                    } else if (!next->on_cancel_ && !next->limit_handle_) {
+                        // implicit success
+                        handle_success_sync(next);
+                    } else {
+                        // wait external event
+                        sched_exec = false;
+                    }
+                } catch (const std::exception& e) {
+                    state_.catch_trace(e);
+                    handle_error_sync(next, e.what(), true);
                 }
+            } while (false);
 
-                in_exec_ = false;
-            } catch (const ExtError& e) {
-                in_exec_ = false;
-                state_.catch_trace(e);
-                state_.error_info = e.error_info();
-                next->handle_error(e.what());
-            } catch (const std::exception& e) {
-                in_exec_ = false;
-                state_.catch_trace(e);
-                next->handle_error(e.what());
+            in_exec_ = false;
+
+            if (sched_exec && !queue_.empty()) {
+                schedule_exec();
             }
         }
 
@@ -1011,12 +1017,22 @@ namespace futoin {
             if (!async_tool_.is_same_thread()) {
                 std::promise<void> done;
                 auto task = [this, current, &done]() {
-                    this->handle_success(current);
+                    this->handle_success_sync(current);
                     done.set_value();
                 };
                 async_tool_.immediate(std::ref(task));
                 done.get_future().wait();
                 return;
+            }
+
+            handle_success_sync(current);
+        }
+
+        void BaseAsyncSteps::Impl::handle_success_sync(
+                ProtectorData* current) noexcept
+        {
+            if (current != stack_top_) {
+                on_invalid_call("success() out of order");
             }
 
             if (!is_sub_queue_empty(current)) {
@@ -1027,21 +1043,21 @@ namespace futoin {
             // how queue is managed.
             current->limit_handle_.cancel();
 
-            stack_top_ = stack_top_->parent_;
-
-            while (stack_top_ != nullptr) {
-                current = stack_top_;
-
+            for (auto current = stack_top_->parent_; current != nullptr;) {
                 cond_sub_queue_shift(current);
 
                 if (!is_sub_queue_empty(current)) {
+                    stack_top_ = current;
                     schedule_exec();
                     return;
                 }
 
-                stack_top_ = current->parent_;
+                auto next = current->parent_;
                 sub_queue_free(current);
+                current = next;
             }
+
+            stack_top_ = nullptr;
 
             // Got to root queue
             cond_queue_shift();
@@ -1057,7 +1073,7 @@ namespace futoin {
             if (!async_tool_.is_same_thread()) {
                 std::promise<void> done;
                 auto task = [this, current, code, &done]() {
-                    this->handle_error(current, code);
+                    this->handle_error_sync(current, code, !in_exec_);
                     done.set_value();
                 };
                 async_tool_.immediate(std::ref(task));
@@ -1065,23 +1081,27 @@ namespace futoin {
                 return;
             }
 
-            if (exec_handle_) {
-                exec_handle_.cancel();
-            }
+            handle_error_sync(current, code, !in_exec_);
+        }
 
-            if (in_exec_) {
-                // avoid double handling
-                return;
-            }
-
+        void BaseAsyncSteps::Impl::handle_error_sync(
+                ProtectorData* current, ErrorCode code, bool unwind) noexcept
+        {
             if (current != stack_top_) {
                 on_invalid_call("error() out of order");
             }
 
-            futoin::string code_cache{
-                    futoin::string::allocator_type(mem_pool_)};
+            auto& code_cache = error_code_;
 
-            for (;;) {
+            if (code_cache.data() != code) {
+                code_cache = code;
+            }
+
+            if (!unwind) {
+                return;
+            }
+
+            while (current != nullptr) {
                 sub_queue_free(current);
                 current->sub_queue_front = current->sub_queue_start;
 
@@ -1094,61 +1114,50 @@ namespace futoin {
                     current->on_cancel_ = nullptr;
                 }
 
+                // Prevent re-handling of sub-steps added inside the handler.
                 const ErrorHandler on_error{
                         std::move(current->data_.on_error_)};
 
                 if (on_error) {
                     try {
-                        in_exec_ = true;
-                        on_error(*current, code);
-                        in_exec_ = false;
+                        on_error(*current, code_cache.c_str());
 
                         if (stack_top_ != current) {
+                            code_cache.clear();
                             // success() was called
                             return;
                         }
 
                         if (!is_sub_queue_empty(current)) {
+                            code_cache.clear();
                             schedule_exec();
                             return;
                         }
                     } catch (const std::exception& e) {
-                        in_exec_ = false;
                         state_.catch_trace(e);
                         code_cache = e.what();
-                        code = code_cache.c_str();
                     }
                 }
 
-                stack_top_ = current->parent_;
-
-                if (stack_top_ == nullptr) {
-                    break;
-                }
-
-                current = stack_top_;
+                current = current->parent_;
+                stack_top_ = current;
             }
 
             clear_queue();
 
             if (state_.unhandled_error) {
-                state_.unhandled_error(code);
+                state_.unhandled_error(code_cache.c_str());
             } else {
-                FatalMsg() << "unhandled AsyncStep error " << code;
+                FatalMsg() << "unhandled AsyncStep error " << code_cache;
             }
         }
 
         void BaseAsyncSteps::Impl::handle_cancel() noexcept
         {
             if (async_tool_.is_same_thread() || queue_.empty()) {
-                if (in_exec_) {
-                    on_invalid_call("cancel() inside execution");
-                }
-
                 exec_handle_.cancel();
 
-                while (stack_top_ != nullptr) {
-                    auto current = stack_top_;
+                for (auto current = stack_top_; current != nullptr;) {
                     current->limit_handle_.cancel();
 
                     auto& on_cancel = current->on_cancel_;
@@ -1158,8 +1167,10 @@ namespace futoin {
                         current->on_cancel_ = nullptr;
                     }
 
-                    stack_top_ = current->parent_;
+                    current = current->parent_;
                 }
+
+                stack_top_ = nullptr;
 
                 clear_queue();
             } else {

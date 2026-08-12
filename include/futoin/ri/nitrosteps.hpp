@@ -237,7 +237,7 @@ namespace futoin {
                     auto& ext_state = ns.current_ext_state();
 
                     asi.setCancel(&HandleParallelBase::cancel_parallel);
-                    ns.error_code_cache[0] = 0;
+                    ns.error_code_cache_[0] = 0;
                     ext_state.parallel_completed = 0;
 
                     for (auto& p : ext_state.parallel_items) {
@@ -250,7 +250,7 @@ namespace futoin {
                     auto& ns = static_cast<NS&>(asi);
                     auto& ext_state = ns.current_ext_state();
 
-                    if (ns.error_code_cache[0] == 0) {
+                    if (ns.error_code_cache_[0] == 0) {
                         ext_state.parallel_items.clear();
                     }
                 }
@@ -293,10 +293,10 @@ namespace futoin {
                     auto& ext_state = ns.current_ext_state();
                     ext_state.parallel_items.clear();
 
-                    if (ns.error_code_cache[0] == 0) {
-                        ns.handle_success();
+                    if (ns.error_code_cache_[0] == 0) {
+                        ns.handle_success_sync();
                     } else {
-                        ns.handle_error(ns.error_code_cache);
+                        ns.handle_error_unwind(ns.error_code_cache_);
                     }
                 }
             };
@@ -860,8 +860,10 @@ namespace futoin {
 
             void execute() noexcept final
             {
-                HandleExecute& he = *this;
-                exec_handle_ = async_tool_.immediate(std::ref(he));
+                if (!in_exec_) {
+                    HandleExecute& he = *this;
+                    exec_handle_ = async_tool_.immediate(std::ref(he));
+                }
             }
 
             void cancel() noexcept final
@@ -966,6 +968,22 @@ namespace futoin {
 
             void handle_success() noexcept final
             {
+                if (!async_tool_.is_same_thread()) {
+                    std::promise<void> done;
+                    auto task = [this, &done]() {
+                        this->handle_success_sync();
+                        done.set_value();
+                    };
+                    async_tool_.immediate(std::ref(task));
+                    done.get_future().wait();
+                    return;
+                }
+
+                handle_success_sync();
+            }
+
+            void handle_success_sync() noexcept
+            {
                 auto current = last_step_;
 
                 if (!is_sub_queue_empty(current)) {
@@ -1001,13 +1019,28 @@ namespace futoin {
 
             void handle_error(ErrorCode code) final
             {
-                if (exec_handle_) {
-                    exec_handle_.cancel();
+                if (!async_tool_.is_same_thread()) {
+                    std::promise<void> done;
+                    auto task = [this, code, &done]() {
+                        this->handle_error(code);
+                        done.set_value();
+                    };
+                    async_tool_.immediate(std::ref(task));
+                    done.get_future().wait();
+                    return;
                 }
 
-                if (in_exec_) {
-                    // avoid double handling
-                    return;
+                code = cache_error_code(code);
+
+                if (!in_exec_) {
+                    handle_error_unwind(code);
+                }
+            }
+
+            void handle_error_unwind(ErrorCode code)
+            {
+                if (code != error_code_cache_) {
+                    code = cache_error_code(code);
                 }
 
                 auto current = last_step_;
@@ -1033,23 +1066,20 @@ namespace futoin {
 
                     if (on_error) {
                         try {
-                            in_exec_ = true;
                             on_error(*this, code);
-                            in_exec_ = false;
 
                             if (last_step_ != current) {
                                 // success() was called
+                                error_code_cache_[0] = 0;
                                 return;
                             }
 
                             if (!is_sub_queue_empty(current)) {
-                                execute();
+                                error_code_cache_[0] = 0;
                                 return;
                             }
                         } catch (const std::exception& e) {
-                            in_exec_ = false;
                             impl_.get_state().catch_trace(e);
-
                             code = cache_error_code(e.what());
                         }
                     }
@@ -1115,59 +1145,60 @@ namespace futoin {
         private:
             void handle_execute() noexcept
             {
+                in_exec_ = true;
                 exec_handle_.reset();
-                NitroStepData* next = nullptr;
 
-                auto current = last_step_;
+                bool sched_exec = true;
 
-                while (current != nullptr) {
-                    if (is_sub_queue_empty(current)) {
-                        sub_queue_free(current);
-                        current = current->parent;
-                        last_step_ = current;
-                    } else {
+                do {
+                    NitroStepData* next = nullptr;
+
+                    auto current = last_step_;
+
+                    if (current != nullptr) {
                         next = step_front(current);
+                    } else if (is_queue_empty()) {
                         break;
-                    }
-                }
-
-                if (next == nullptr) {
-                    if (is_queue_empty()) {
-                        return;
+                    } else {
+                        next = step_at(queue_begin_);
                     }
 
-                    next = step_at(queue_begin_);
-                }
+                    const auto qs = queue_end();
+                    next->sub_queue_start = qs;
+                    next->sub_queue_front = qs;
 
-                const auto qs = queue_end();
-                next->sub_queue_start = qs;
-                next->sub_queue_front = qs;
+                    last_step_ = next;
 
-                last_step_ = next;
+                    try {
+                        next->func_(*this);
 
-                try {
-                    in_exec_ = true;
-                    next->func_(*this);
-
-                    if (last_step_ != next) {
-                        // pass
-                    } else if (!is_sub_queue_empty(next)) {
-                        execute();
-                    } else if (next->is_auto_success()) {
-                        handle_success();
+                        if (last_step_ != next) {
+                            // explicit success()
+                        } else if (error_code_cache_[0]) {
+                            handle_error_unwind(error_code_cache_);
+                        } else if (!is_sub_queue_empty(next)) {
+                            // pass
+                        } else if (next->is_auto_success()) {
+                            handle_success_sync();
+                        } else {
+                            sched_exec = false;
+                        }
+                    } catch (const std::exception& e) {
+                        impl_.get_state().catch_trace(e);
+                        handle_error_unwind(e.what());
                     }
+                } while (false);
 
-                    in_exec_ = false;
-                } catch (const std::exception& e) {
-                    in_exec_ = false;
-                    impl_.get_state().catch_trace(e);
-                    handle_error(e.what());
+                in_exec_ = false;
+
+                if (sched_exec && !is_queue_empty()) {
+                    execute();
                 }
             }
 
             void handle_timeout() noexcept
             {
-                handle_error(errors::Timeout);
+                handle_error_unwind(errors::Timeout);
             }
 
             bool is_queue_empty() const noexcept
@@ -1326,19 +1357,19 @@ namespace futoin {
 #    pragma GCC diagnostic push
 #    pragma GCC diagnostic ignored "-Wstringop-truncation"
 #endif
-                strncpy(error_code_cache, code, sizeof(error_code_cache));
+                strncpy(error_code_cache_, code, sizeof(error_code_cache_));
 #ifdef __clang
 #    pragma clang diagnostic pop
 #elif defined(__GNUC__)
 #    pragma GCC diagnostic pop
 #endif
 
-                if (error_code_cache[sizeof(error_code_cache) - 1] != 0) {
+                if (error_code_cache_[sizeof(error_code_cache_) - 1] != 0) {
                     FatalMsg()
                             << "too long error code for NitroSteps: " << code;
                 }
 
-                return error_code_cache;
+                return error_code_cache_;
             }
 
             IMemPool& mem_pool() noexcept
@@ -1363,7 +1394,7 @@ namespace futoin {
                     extended_list_;
             StepIndex stack_alloc_size_{0};
             typename Parameters::StackAllocList stack_alloc_list_;
-            typename Parameters::ErrorCodeCache error_code_cache;
+            typename Parameters::ErrorCodeCache error_code_cache_{0};
 
 #if 0
             static_assert(
