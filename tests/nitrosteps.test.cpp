@@ -978,7 +978,7 @@ BOOST_AUTO_TEST_SUITE(parallel) // NOLINT
 BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
 {
     ri::AsyncTool at;
-    ri::NitroSteps<> asi(at);
+    ri::NitroSteps<ri::nitro::BurstSize<1>> asi(at);
 
     using V = std::vector<int>;
 
@@ -1028,7 +1028,7 @@ BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
 BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
 {
     ri::AsyncTool at;
-    ri::NitroSteps<> asi(at);
+    ri::NitroSteps<ri::nitro::BurstSize<1>> asi(at);
 
     using V = std::vector<int>;
 
@@ -1089,7 +1089,7 @@ BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
 BOOST_AUTO_TEST_CASE(error_outer) // NOLINT
 {
     ri::AsyncTool at;
-    ri::NitroSteps<> asi(at);
+    ri::NitroSteps<ri::nitro::BurstSize<1>> asi(at);
 
     using V = std::vector<int>;
 

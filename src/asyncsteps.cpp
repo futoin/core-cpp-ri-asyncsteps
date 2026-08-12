@@ -167,6 +167,8 @@ namespace futoin {
             using Queue = std::deque<QueueItem, IMemPool::Allocator<QueueItem>>;
             using StackAlloc = std::tuple<void*, StackDestroyHandler, size_t>;
 
+            static constexpr auto BURST_SIZE = 100;
+
             Impl(BaseState& state,
                  IAsyncTool& async_tool,
                  IMemPool& mem_pool) noexcept :
@@ -962,7 +964,7 @@ namespace futoin {
 
             bool sched_exec = true;
 
-            do {
+            for (long burst = BURST_SIZE; sched_exec && burst > 0; --burst) {
                 auto* next = stack_top_;
 
                 if (next != nullptr) {
@@ -1002,7 +1004,7 @@ namespace futoin {
                     state_.catch_trace(e);
                     handle_error_sync(next, e.what(), true);
                 }
-            } while (false);
+            }
 
             in_exec_ = false;
 

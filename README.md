@@ -110,6 +110,7 @@ void inner_thread() {
     // futoin::ri::nitro::MaxExtended<4>
     // futoin::ri::nitro::MaxStackAllocs<8>
     // futoin::ri::nitro::ErrorCodeMaxSize<32>
+    // futoin::ri::nitro::BurstSize<100>
 
     futoin::ri::NitroSteps<
         futoin::ri::nitro::MaxSteps<8>
@@ -121,6 +122,7 @@ void inner_thread() {
     });
     asi_default.execute();
 }
+```
 
 #### Mutex
 

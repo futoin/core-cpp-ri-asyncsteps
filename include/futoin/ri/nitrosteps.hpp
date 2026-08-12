@@ -653,6 +653,18 @@ namespace futoin {
                 };
             };
 
+            template<StepIndex burst_sise>
+            struct BurstSize
+            {
+                template<typename Base>
+                struct Override : Base
+                {
+                    static constexpr auto BURST_SIZE = burst_sise;
+                    static_assert(
+                            BURST_SIZE > 0, "BurstSize must be greater than 0");
+                };
+            };
+
             // Yes, there is Boost.Parameter...
             //-------------------------
 
@@ -665,7 +677,8 @@ namespace futoin {
                                    MaxCancels<4>::Override<DefaultNoop>,
                                    MaxExtended<4>::Override<DefaultNoop>,
                                    MaxStackAllocs<8>::Override<DefaultNoop>,
-                                   ErrorCodeMaxSize<32>::Override<DefaultNoop>
+                                   ErrorCodeMaxSize<32>::Override<DefaultNoop>,
+                                   BurstSize<100>::Override<DefaultNoop>
             {};
 
             template<typename T, typename... Params>
@@ -725,6 +738,12 @@ namespace futoin {
              */
             template<StepIndex max_size>
             using ErrorCodeMaxSize = nitro_details::ErrorCodeMaxSize<max_size>;
+
+            /**
+             * @brief Configure maximum length of execution burst.
+             */
+            template<StepIndex burst_size>
+            using BurstSize = nitro_details::BurstSize<burst_size>;
         } // namespace nitro
 
         /**
@@ -1150,7 +1169,9 @@ namespace futoin {
 
                 bool sched_exec = true;
 
-                do {
+                for (long burst = Parameters::BURST_SIZE;
+                     sched_exec && burst > 0;
+                     --burst) {
                     NitroStepData* next = nullptr;
 
                     auto current = last_step_;
@@ -1187,7 +1208,7 @@ namespace futoin {
                         impl_.get_state().catch_trace(e);
                         handle_error_unwind(e.what());
                     }
-                } while (false);
+                }
 
                 in_exec_ = false;
 

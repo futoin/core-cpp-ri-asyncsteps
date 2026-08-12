@@ -121,6 +121,10 @@ void ParallelWaitLoop_bench(unsigned count) {
             waiting.front()->success(1);
             waiting.pop_front();
         }
+
+        // Emulate yield
+        asi.waitExternal();
+        at.immediate([&](){ asi.success(); });
     });
     
     f.execute();
