@@ -3,7 +3,27 @@
 
 See [**FTN12: AsyncSteps**](https://futoin.org/docs/asyncsteps/) for more details.
 
+### Mirrors
+
+This FutoIn sub-project:
+
+- [Codeberg: FutoIn C++ AsyncSteps](https://codeberg.org/futoin/core-cpp-ri-asyncsteps)
+- [GitHub: FutoIn C++ AsyncSteps](https://github.com/futoin/core-cpp-ri-asyncsteps)
+- [GitLab: FutoIn C++ AsyncSteps](https://gitlab.com/futoin/core/cpp/ri-asyncsteps)
+
+All-in-one FutoIn Core C++:
+
+- [Codeberg: FutoIn Core C++](https://codeberg.org/futoin/core-cpp-ri)
+- [GitHub: FutoIn Core C++](https://github.com/futoin/core-cpp-ri)
+- [GitLab: FutoIn Core C++](https://gitlab.com/futoin/core/cpp/ri)
+
+
 ### Usage
+
+This Reference Implementations depends on common
+[FutoIn Core C++ API](https://codeberg.org/futoin/core-cpp-api). The business
+logic must be written against the API only, while this reference implementation
+is only an engine.
 
 Please refer to FutoIn/Core/Native C++ API for details of AsyncSteps interface.
 
@@ -19,9 +39,17 @@ Please refer to FutoIn/Core/Native C++ API for details of AsyncSteps interface.
 
 #### AsyncSteps
 
-```c++
+
+```cpp
 #include <futoin/ri/asyncsteps.hpp>
 #include <futoin/ri/asynctool.hpp>
+
+void some_business_logic(futoin::IAsyncSteps &asi, SomeRequest request) {
+    // See the FutoIn AsyncSteps API example at
+    // https://codeberg.org/futoin/core-cpp-api
+    asi.add(...);
+    ...
+}
 
 void inner_thread() {
     futoin::ri::AsyncTool at;
@@ -29,28 +57,36 @@ void inner_thread() {
     futoin::ri::AsyncSteps asi;
     asi.state("requests", RequestManager());
 
-    asi.loop([&at](futoin::IAsyncSteps &asi){
+    asi.loop([](futoin::IAsyncSteps &asi){
         // Some infinite loop logic
         auto request = ...;
         
         // Handle some new request
         auto steps = asi.newInstance().release();
         
-        // That's just for example, real implementation must
-        // manage request objects (their std::unique_ptr references).
-        auto cleanup = [&at,steps]() {
-            at.immediate([steps](){
+        // That's just for example of versatile cases, a real world
+        // case must manage AsyncSteps objects.
+        // See also IAsyncSteps::stack<T>() API.
+        auto cleanup = [steps]() {
+            steps->tool().immediate([steps](){
                 delete steps;
             });
         };
         
-        steps->add([cleanup, request](futoin::IAsyncSteps &asi){
-            asi.setCancel([cleanup](futoin::IAsyncSteps &asi){
+        steps->add(
+            [=](futoin::IAsyncSteps &asi){
+                asi.setCancel([cleanup](futoin::IAsyncSteps &asi){
+                    cleanup();
+                });
+                some_business_logic(asi, request);
+            },
+            [=](futoin::IAsyncSteps &asi, futoin::ErrorCode err) {
+                send_error(err);
                 cleanup();
-            });
-            call_business_logic(asi, request);
-        });
-        steps->add([cleanup](futoin::IAsyncSteps &asi){
+            }
+        );
+        steps->add([=](futoin::IAsyncSteps &asi, Response rsp){
+            send_response(rsp);
             cleanup();
         });
         steps->execute();
@@ -95,7 +131,7 @@ It general, case-optimized `NitroSteps` may perform better than the default `Asy
 there are edge cases where it may performs worse. So, `futoin::ri::AsyncSteps` is safe option
 unless case-specific optimization is done.
 
-```c++
+```cpp
 #include <futoin/ri/asynctool.hpp>
 #include <futoin/ri/nitrosteps.hpp>
 
@@ -132,7 +168,7 @@ The Mutex is recursive.
 A strictly ordered queue of pending flows is supported. If queue limit
 is reached then `DefenseRejected` error is raised.
 
-```c++
+```cpp
 #include <futoin/ri/mutex.hpp>
 
 using futoin::ri::Mutex;
@@ -166,7 +202,7 @@ in period of time.
 
 Pending queue is supported as for the `Mutex`.
 
-```c++
+```cpp
 #include <futoin/ri/throttle.hpp>
 
 // Required to schedule period reset timer
@@ -199,7 +235,7 @@ to limit incoming and outgoing requests to evade attacks and
 avoid accidental self-DoS.
 
 
-```c++
+```cpp
 #include <futoin/ri/limiter.hpp>
 
 // Required to schedule period reset timer
