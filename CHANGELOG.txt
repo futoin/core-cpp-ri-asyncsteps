@@ -1,4 +1,4 @@
-=== (next) ===
+=== 1.6.0 (2026-08-13) ===
 BREAKING CHANGE: FTN12 v1.16 revised State object interface for ABI compatibility
 CHANGED: revised futoin::Error and futoin:ExtError to be user-thrown, introduced private UnwindException
 FIXED: error_info handling in BinaryAPI/ABI
