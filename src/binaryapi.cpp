@@ -346,8 +346,10 @@ namespace futoin {
                         }
 #ifndef FUTOIN_NO_EXC
                         // NOLINTNEXTLINE(bugprone-empty-catch)
-                    } catch (const futoin::Error& e) {
-                        // that must be already recorded
+                    } catch (const asyncsteps::UnwindException& e) {
+                        asi->state().catch_trace(e);
+                    } catch (const futoin::ExtError& e) {
+                        asi->errorNoThrow(e.what(), e.error_info().c_str());
                     } catch (const std::exception& e) {
                         asi->errorNoThrow(e.what());
                     }
@@ -393,6 +395,8 @@ namespace futoin {
 #    define WRAP_EXC(expr)                                            \
         try {                                                         \
             expr;                                                     \
+        } catch (const asyncsteps::UnwindException& e) {              \
+            handle_wrap_state(*asi, bsi).catch_trace(e);              \
         } catch (const futoin::ExtError& e) {                         \
             handle_wrap_state(*asi, bsi).error_info = e.error_info(); \
             handle_wrap_error(*asi, bsi, e);                          \

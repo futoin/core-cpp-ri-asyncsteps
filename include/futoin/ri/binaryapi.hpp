@@ -33,8 +33,6 @@ namespace futoin {
             ~BinarySteps();
 
             IAsyncSteps& asi;
-            futoin::string last_error_;
-            futoin::string last_error_info_;
             // likely no benefits from flags as aligned to 32-bit any way
             bool managed_;
             bool parallel_{false};

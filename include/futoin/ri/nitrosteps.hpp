@@ -1092,14 +1092,23 @@ namespace futoin {
                             if (last_step_ != current) {
                                 // success() was called
                                 error_code_cache_[0] = 0;
+                                impl_.get_state().error_info.clear();
                                 return;
                             }
 
                             if (!is_sub_queue_empty(current)) {
                                 error_code_cache_[0] = 0;
+                                impl_.get_state().error_info.clear();
                                 return;
                             }
 #ifndef FUTOIN_NO_EXC
+                        } catch (const asyncsteps::UnwindException& e) {
+                            impl_.get_state().catch_trace(e);
+                        } catch (const futoin::ExtError& e) {
+                            auto& state = impl_.get_state();
+                            state.catch_trace(e);
+                            state.error_info = std::move(e.error_info());
+                            code = cache_error_code(e.what());
                         } catch (const std::exception& e) {
                             impl_.get_state().catch_trace(e);
                             code = cache_error_code(e.what());
@@ -1211,6 +1220,14 @@ namespace futoin {
                             sched_exec = false;
                         }
 #ifndef FUTOIN_NO_EXC
+                    } catch (const asyncsteps::UnwindException& e) {
+                        impl_.get_state().catch_trace(e);
+                        handle_error_unwind(error_code_cache_);
+                    } catch (const futoin::ExtError& e) {
+                        auto& state = impl_.get_state();
+                        state.catch_trace(e);
+                        state.error_info = std::move(e.error_info());
+                        handle_error_unwind(e.what());
                     } catch (const std::exception& e) {
                         impl_.get_state().catch_trace(e);
                         handle_error_unwind(e.what());

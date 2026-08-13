@@ -320,18 +320,21 @@ BOOST_AUTO_TEST_CASE(handle_errors) // NOLINT
                                         asi.add([](IAsyncSteps& asi) {
                                             asi.state<V>("result").push_back(
                                                     10000);
-                                            asi.error("FirstError");
+                                            asi.error("FirstError", "FirstInfo");
                                         });
                                     },
-                                    [](IAsyncSteps& asi, ErrorCode) {
+                                    [](IAsyncSteps& asi, ErrorCode err) {
                                         asi.state<V>("result").push_back(1001);
+                                        BOOST_CHECK_EQUAL(err, "FirstError");
+                                        BOOST_CHECK_EQUAL(asi.state().error_info, "FirstInfo");
                                     });
                         },
                         [](IAsyncSteps& asi, ErrorCode err) {
                             asi.state<V>("result").push_back(101);
 
                             BOOST_CHECK_EQUAL(err, "FirstError");
-                            asi.error("SecondError");
+                            BOOST_CHECK_EQUAL(asi.state().error_info, "FirstInfo");
+                            asi.error("SecondError", "SecondInfo");
                         });
                 asi.add([](IAsyncSteps& asi) {
                     asi.state<V>("result").push_back(102);
@@ -340,6 +343,7 @@ BOOST_AUTO_TEST_CASE(handle_errors) // NOLINT
             [](IAsyncSteps& asi, ErrorCode err) {
                 asi.state<V>("result").push_back(11);
                 BOOST_CHECK_EQUAL(err, "SecondError");
+                BOOST_CHECK_EQUAL(asi.state().error_info, "SecondInfo");
                 asi.success("Yes");
             });
     asi.add(
@@ -354,6 +358,7 @@ BOOST_AUTO_TEST_CASE(handle_errors) // NOLINT
                 asi.state<V>("result").push_back(21);
 
                 BOOST_CHECK_EQUAL(err, "ThirdError");
+                BOOST_CHECK_EQUAL(asi.state().error_info, "");
 
                 asi.add([&](IAsyncSteps& asi) {
                     asi.state<V>("result").push_back(210);
@@ -370,6 +375,87 @@ BOOST_AUTO_TEST_CASE(handle_errors) // NOLINT
             required.begin(),
             required.end());
 }
+
+#ifndef FUTOIN_NO_EXC
+BOOST_AUTO_TEST_CASE(handle_errors_exceptions) // NOLINT
+{
+    ri::AsyncTool at;
+    ri::NitroSteps<> asi(at);
+
+    std::promise<void> done;
+    using V = std::vector<int>;
+    const V required{10, 100, 1000, 10000, 1001, 101, 11, 20, 21, 210};
+
+    asi.state()["result"] = V();
+
+    asi.add(
+            [](IAsyncSteps& asi) {
+                asi.state<V>("result").push_back(10);
+                asi.add(
+                        [](IAsyncSteps& asi) {
+                            asi.state<V>("result").push_back(100);
+
+                            asi.add(
+                                    [](IAsyncSteps& asi) {
+                                        asi.state<V>("result").push_back(1000);
+
+                                        asi.add([](IAsyncSteps& asi) {
+                                            asi.state<V>("result").push_back(
+                                                    10000);
+                                            throw futoin::Error("FirstError");
+                                        });
+                                    },
+                                    [](IAsyncSteps& asi, ErrorCode) {
+                                        asi.state<V>("result").push_back(1001);
+                                    });
+                        },
+                        [](IAsyncSteps& asi, ErrorCode err) {
+                            asi.state<V>("result").push_back(101);
+
+                            BOOST_CHECK_EQUAL(err, "FirstError");
+                            BOOST_CHECK_EQUAL(asi.state().error_info, "");
+                            throw futoin::ExtError("SecondError", "SecondInfo");
+                        });
+                asi.add([](IAsyncSteps& asi) {
+                    asi.state<V>("result").push_back(102);
+                });
+            },
+            [](IAsyncSteps& asi, ErrorCode err) {
+                asi.state<V>("result").push_back(11);
+                BOOST_CHECK_EQUAL(err, "SecondError");
+                BOOST_CHECK_EQUAL(asi.state().error_info, "SecondInfo");
+                asi.success("Yes");
+            });
+    asi.add(
+            [&](IAsyncSteps& asi, futoin::string&& res) {
+                asi.state<V>("result").push_back(20);
+
+                BOOST_CHECK_EQUAL(res, "Yes");
+
+                throw futoin::Error("ThirdError");
+            },
+            [&](IAsyncSteps& asi, ErrorCode err) {
+                asi.state<V>("result").push_back(21);
+
+                BOOST_CHECK_EQUAL(err, "ThirdError");
+                BOOST_CHECK_EQUAL(asi.state().error_info, "");
+
+                asi.add([&](IAsyncSteps& asi) {
+                    asi.state<V>("result").push_back(210);
+                    done.set_value();
+                });
+            });
+
+    asi.execute();
+    done.get_future().wait();
+
+    BOOST_CHECK_EQUAL_COLLECTIONS(
+            asi.state<V>("result").begin(),
+            asi.state<V>("result").end(),
+            required.begin(),
+            required.end());
+}
+#endif
 
 BOOST_AUTO_TEST_CASE(set_cancel_success) // NOLINT
 {

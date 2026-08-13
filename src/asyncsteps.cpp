@@ -1021,6 +1021,13 @@ namespace futoin {
                         sched_exec = false;
                     }
 #ifndef FUTOIN_NO_EXC
+                } catch (const futoin::asyncsteps::UnwindException& e) {
+                    state_.catch_trace(e);
+                    handle_error_sync(next, error_code_.c_str(), true);
+                } catch (const futoin::ExtError& e) {
+                    state_.catch_trace(e);
+                    state_.error_info = e.error_info();
+                    handle_error_sync(next, e.what(), true);
                 } catch (const std::exception& e) {
                     state_.catch_trace(e);
                     handle_error_sync(next, e.what(), true);
@@ -1150,16 +1157,24 @@ namespace futoin {
 
                         if (stack_top_ != current) {
                             code_cache.clear();
+                            state_.error_info.clear();
                             // success() was called
                             return;
                         }
 
                         if (!is_sub_queue_empty(current)) {
                             code_cache.clear();
+                            state_.error_info.clear();
                             schedule_exec();
                             return;
                         }
 #ifndef FUTOIN_NO_EXC
+                    } catch (const futoin::asyncsteps::UnwindException& e) {
+                        state_.catch_trace(e);
+                    } catch (const futoin::ExtError& e) {
+                        state_.catch_trace(e);
+                        state_.error_info = e.error_info();
+                        code_cache = e.what();
                     } catch (const std::exception& e) {
                         state_.catch_trace(e);
                         code_cache = e.what();
