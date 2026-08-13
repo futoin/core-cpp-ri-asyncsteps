@@ -55,6 +55,9 @@ namespace futoin {
         }
 
         //---
+        /**
+         * @private
+         */
         struct SubAsyncSteps final : public BaseAsyncSteps
         {
             SubAsyncSteps(BaseState& state, IAsyncTool& async_tool) noexcept :
@@ -68,6 +71,9 @@ namespace futoin {
         };
 
         //---
+        /**
+         * @private
+         */
         struct BaseAsyncSteps::ExtStepState : asyncsteps::LoopState
         {
             ExtStepState(IMemPool& mem_pool, bool is_loop) :
@@ -129,6 +135,9 @@ namespace futoin {
             StepData sync_data_;
         };
 
+        /**
+         * @private
+         */
         class BaseAsyncSteps::ProtectorData : public IAsyncSteps
         {
             friend class BaseAsyncSteps;
@@ -157,6 +166,9 @@ namespace futoin {
         };
 
         //---
+        /**
+         * @private
+         */
         struct BaseAsyncSteps::Impl
         {
             using ProtectorDataHolder = std::aligned_storage<
@@ -308,6 +320,9 @@ namespace futoin {
 
         //---
 
+        /**
+         * @private
+         */
         class BaseAsyncSteps::Protector : public ProtectorData
         {
         public:
@@ -574,6 +589,9 @@ namespace futoin {
 
         //---
 
+        /**
+         * @private
+         */
         class BaseAsyncSteps::ParallelStep final
             : public BaseAsyncSteps::Protector
         {
@@ -1257,6 +1275,9 @@ namespace futoin {
             BaseAsyncSteps::cancel();
         }
 
+        /**
+         * @private
+         */
         struct BaseAsyncSteps::AllocOptimizer
         {
             IMemPool::Allocator<futoin::any>::EnsureOptimized any;

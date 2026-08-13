@@ -44,6 +44,9 @@ namespace futoin {
 
         constexpr size_t AsyncTool::BURST_COUNT;
 
+        /**
+         * @private
+         */
         template<typename T>
         struct optimized_pool : boost::object_pool<T>
         {
@@ -56,6 +59,9 @@ namespace futoin {
             using Base::release_memory;
         };
 
+        /**
+         * @private
+         */
         template<typename T>
         struct optimized_list_node
         {
@@ -64,6 +70,9 @@ namespace futoin {
             optimized_list_node* next{this};
         };
 
+        /**
+         * @private
+         */
         template<
                 typename T,
                 typename Allocator = optimized_pool<optimized_list_node<T>>>
@@ -234,6 +243,9 @@ namespace futoin {
             size_t size_{0};
         };
 
+        /**
+         * @private
+         */
         struct AsyncTool::Impl
         {
             struct UniversalHandle : InternalHandle
