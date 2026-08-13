@@ -345,6 +345,7 @@ namespace futoin {
                             asi->stack<UniqueAsyncPtr>().swap(wasi);
                         }
 #ifndef FUTOIN_NO_EXC
+                        // NOLINTNEXTLINE(bugprone-empty-catch)
                     } catch (const futoin::Error& e) {
                         // that must be already recorded
                     } catch (const std::exception& e) {
