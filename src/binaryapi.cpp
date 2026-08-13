@@ -465,6 +465,7 @@ namespace futoin {
                     IMemPool::Allocator<CallbackData> allocator(mem_pool);
 
                     auto* ptr = allocator.allocate(1);
+                    allocator.construct(ptr);
                     ptr->mem_pool = &mem_pool;
                     cb.move(ptr->callback, ptr->storage);
 
@@ -480,6 +481,7 @@ namespace futoin {
                                         reinterpret_cast<CallbackData*>(data);
                                 IMemPool::Allocator<CallbackData> allocator(
                                         *(ptr->mem_pool));
+                                allocator.destroy(ptr);
                                 allocator.deallocate(ptr, 1);
                             });
                     return ret;
@@ -494,6 +496,7 @@ namespace futoin {
                     IMemPool::Allocator<CallbackData> allocator(mem_pool);
 
                     auto* ptr = allocator.allocate(1);
+                    allocator.construct(ptr);
                     ptr->mem_pool = &mem_pool;
                     cb.move(ptr->callback, ptr->storage);
 
@@ -512,6 +515,7 @@ namespace futoin {
                                         reinterpret_cast<CallbackData*>(data);
                                 IMemPool::Allocator<CallbackData> allocator(
                                         *(ptr->mem_pool));
+                                allocator.destroy(ptr);
                                 allocator.deallocate(ptr, 1);
                             });
                     return ret;

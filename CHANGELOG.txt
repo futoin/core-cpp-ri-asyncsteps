@@ -2,6 +2,7 @@
 CHANGED: updated to FutoIn Public license
 CHANGED: new burst execution of single instance steps for better cache data locality
 FIXED: NoThrow() API edge cases and spec design principles violation
+FIXED: BinaryAPI await missing init/cleanup of data
 NEW: support for -fno-exceptions with FUTOIN_WITH_EXC=OFF
 
 === 1.4.3 (2026-08-11) ===
