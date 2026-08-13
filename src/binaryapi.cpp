@@ -90,6 +90,22 @@ namespace futoin {
                    const char* name,
                    void* (*allocate)(void* data),
                    void (*cleanup)(void* data, void* value)) -> void* {
+                    // Special keys per FTN12 1.16+
+                    if (allocate == nullptr || cleanup == nullptr) {
+                        const void* ret = nullptr;
+
+                        if (strcmp(name, "error_info") == 0) {
+                            auto& state =
+                                    static_cast<BinarySteps*>(bsi)->asi.state();
+                            ret = state.error_info().c_str();
+                        } else if (strcmp(name, "last_exception") == 0) {
+                            auto& state =
+                                    static_cast<BinarySteps*>(bsi)->asi.state();
+                            ret = &(state.last_exception());
+                        }
+                        return const_cast<void*>(ret);
+                    }
+
                     // NOTE: this may lead into futoin::any inside
                     // std::unique_ptr inside futoin::any,
                     //       but this is how it is...
@@ -229,10 +245,10 @@ namespace futoin {
                     auto& asi = static_cast<BinarySteps*>(bsi)->asi;
 
                     if (unhandled_error != nullptr) {
-                        asi.state().unhandled_error =
+                        asi.state().set_unhandled_error(
                                 [bsi, data, unhandled_error](ErrorCode code) {
                                     unhandled_error(bsi, data, code);
-                                };
+                                });
                     }
 
                     asi.execute();
@@ -392,16 +408,16 @@ namespace futoin {
                     e.what());
         }
 
-#    define WRAP_EXC(expr)                                            \
-        try {                                                         \
-            expr;                                                     \
-        } catch (const asyncsteps::UnwindException& e) {              \
-            handle_wrap_state(*asi, bsi).catch_trace(e);              \
-        } catch (const futoin::ExtError& e) {                         \
-            handle_wrap_state(*asi, bsi).error_info = e.error_info(); \
-            handle_wrap_error(*asi, bsi, e);                          \
-        } catch (const std::exception& e) {                           \
-            handle_wrap_error(*asi, bsi, e);                          \
+#    define WRAP_EXC(expr)                                             \
+        try {                                                          \
+            expr;                                                      \
+        } catch (const asyncsteps::UnwindException& e) {               \
+            handle_wrap_state(*asi, bsi).catch_trace(e);               \
+        } catch (const futoin::ExtError& e) {                          \
+            asi->state().set_error_info(ErrorMessage{e.error_info()}); \
+            handle_wrap_error(*asi, bsi, e);                           \
+        } catch (const std::exception& e) {                            \
+            handle_wrap_error(*asi, bsi, e);                           \
         }
 #endif
 
@@ -421,8 +437,7 @@ namespace futoin {
                             &mem_pool(),
                             key.c_str(),
                             [](void* data) -> void* {
-                                auto& mem_pool =
-                                        *reinterpret_cast<IMemPool*>(data);
+                                auto& mem_pool = *static_cast<IMemPool*>(data);
                                 IMemPool::Allocator<futoin::any> allocator(
                                         mem_pool);
                                 futoin::any* ptr = allocator.allocate(1);
@@ -430,16 +445,14 @@ namespace futoin {
                                 return ptr;
                             },
                             [](void* data, void* vptr) {
-                                auto& mem_pool =
-                                        *reinterpret_cast<IMemPool*>(data);
+                                auto& mem_pool = *static_cast<IMemPool*>(data);
                                 IMemPool::Allocator<futoin::any> allocator(
                                         mem_pool);
-                                auto* ptr =
-                                        reinterpret_cast<futoin::any*>(vptr);
+                                auto* ptr = static_cast<futoin::any*>(vptr);
                                 allocator.destroy(ptr);
                                 allocator.deallocate(ptr, 1);
                             });
-                    return *reinterpret_cast<mapped_type*>(data);
+                    return *static_cast<mapped_type*>(data);
                 }
 
                 mapped_type& operator[](key_type&& key) noexcept override
@@ -447,7 +460,57 @@ namespace futoin {
                     return this->operator[](static_cast<const key_type&>(key));
                 }
 
+                const ErrorMessage& error_info() const noexcept final
+                {
+                    void* data = binary_steps_.api->stateVariable(
+                            &binary_steps_,
+                            &mem_pool(),
+                            "error_info",
+                            nullptr,
+                            nullptr);
+                    error_info_cache_ = static_cast<const char*>(data);
+                    return error_info_cache_;
+                }
+                const std::exception_ptr& last_exception() const noexcept final
+                {
+                    void* data = binary_steps_.api->stateVariable(
+                            &binary_steps_,
+                            &mem_pool(),
+                            "last_exception",
+                            nullptr,
+                            nullptr);
+                    return *static_cast<std::exception_ptr*>(data);
+                }
+
+                void catch_trace(const std::exception&) noexcept final
+                {
+                    FatalMsg() << "catch_trace in ABI";
+                }
+
+                void unhandled_error(ErrorCode code) noexcept final
+                {
+                    unhandled_error_(code);
+                }
+
+                void set_error_info(ErrorMessage&& error_info) noexcept final
+                {
+                    error_info_cache_ = std::move(error_info);
+                }
+                void set_catch_trace(CatchTrace&&) noexcept final
+                {
+                    FatalMsg() << "set_catch_trace() in ABI";
+                }
+                void set_unhandled_error(UnhandledError&& code) noexcept final
+                {
+                    // Only applicable to execute() call
+                    unhandled_error_ = code;
+                }
+
                 FutoInAsyncSteps& binary_steps_;
+                mutable ErrorMessage error_info_cache_;
+                UnhandledError unhandled_error_{[](ErrorCode code) noexcept {
+                    FatalMsg() << "unhandled_error '" << code << "' in ABI";
+                }};
             };
 
             struct BinaryTool : IAsyncTool
@@ -476,14 +539,12 @@ namespace futoin {
 
                     Handle ret = binary_steps_.api->sched_immediate(
                             &binary_steps_, ptr, [](void* data) {
-                                auto* ptr =
-                                        reinterpret_cast<CallbackData*>(data);
+                                auto* ptr = static_cast<CallbackData*>(data);
                                 ptr->callback();
                             });
                     binary_steps_.api->sched_immediate(
                             &binary_steps_, ptr, [](void* data) {
-                                auto* ptr =
-                                        reinterpret_cast<CallbackData*>(data);
+                                auto* ptr = static_cast<CallbackData*>(data);
                                 IMemPool::Allocator<CallbackData> allocator(
                                         *(ptr->mem_pool));
                                 allocator.destroy(ptr);
@@ -507,8 +568,7 @@ namespace futoin {
 
                     Handle ret = binary_steps_.api->sched_deferred(
                             &binary_steps_, delay.count(), ptr, [](void* data) {
-                                auto* ptr =
-                                        reinterpret_cast<CallbackData*>(data);
+                                auto* ptr = static_cast<CallbackData*>(data);
                                 ptr->callback();
                             });
                     binary_steps_.api->sched_deferred(
@@ -516,8 +576,7 @@ namespace futoin {
                             delay.count() + 1,
                             ptr,
                             [](void* data) {
-                                auto* ptr =
-                                        reinterpret_cast<CallbackData*>(data);
+                                auto* ptr = static_cast<CallbackData*>(data);
                                 IMemPool::Allocator<CallbackData> allocator(
                                         *(ptr->mem_pool));
                                 allocator.destroy(ptr);
@@ -589,7 +648,7 @@ namespace futoin {
                         [](FutoInAsyncSteps* bsi,
                            void* data,
                            const char* code) {
-                            auto sd = reinterpret_cast<StepData*>(data);
+                            auto sd = static_cast<StepData*>(data);
 
                             if (sd->on_error_) {
                                 auto asi = wrap_binary_steps(*bsi);
@@ -669,8 +728,7 @@ namespace futoin {
                         &cancel_data,
                         [](FutoInAsyncSteps* bsi, void* data) {
                             auto asi = wrap_binary_steps(*bsi);
-                            auto cd = reinterpret_cast<CancelCallbackHolder*>(
-                                    data);
+                            auto cd = static_cast<CancelCallbackHolder*>(data);
                             WRAP_EXC(cd->func(*asi));
                         });
             }
@@ -683,21 +741,13 @@ namespace futoin {
 
             void execute() noexcept override
             {
-                auto& unhandled_error = state().unhandled_error;
-                FutoInAsyncSteps_error_callback error_handler = nullptr;
-
-                if (unhandled_error) {
-                    error_handler = [](FutoInAsyncSteps*,
-                                       void* data,
-                                       RawErrorCode code) {
-                        auto& ue =
-                                *static_cast<BaseState::UnhandledError*>(data);
-                        ue(code);
-                    };
-                }
-
                 binary_steps_.api->execute(
-                        &binary_steps_, &unhandled_error, error_handler);
+                        &binary_steps_,
+                        &state(),
+                        [](FutoInAsyncSteps*, void* data, RawErrorCode code) {
+                            auto& state = *static_cast<BaseState*>(data);
+                            state.unhandled_error(code);
+                        });
             }
 
             void cancel() noexcept override
@@ -719,7 +769,7 @@ namespace futoin {
             }
             void handle_error(ErrorCode error_code) override
             {
-                const auto& error_info = state().error_info;
+                const auto& error_info = state_.error_info_cache_;
                 const auto* label =
                         error_info.empty() ? nullptr : error_info.c_str();
 
@@ -745,8 +795,7 @@ namespace futoin {
                         &loop_data,
                         [](FutoInAsyncSteps_* bsi, void* data) {
                             auto asi = wrap_binary_steps(*bsi);
-                            auto ls = reinterpret_cast<asyncsteps::LoopState*>(
-                                    data);
+                            auto ls = static_cast<asyncsteps::LoopState*>(data);
 
                             if (!ls->cond || ls->cond(*ls)) {
                                 WRAP_EXC(ls->handler(*ls, *asi));
@@ -773,7 +822,7 @@ namespace futoin {
                            const FutoInArgs* args) {
                             auto asi = wrap_binary_steps(*bsi);
                             auto& wasi = static_cast<BinaryStepsWrapper&>(*asi);
-                            auto sd = reinterpret_cast<StepData*>(data);
+                            auto sd = static_cast<StepData*>(data);
                             wasi.next_args_.moveFrom(
                                     const_cast<FutoInArgs&>(*args));
 
@@ -786,7 +835,7 @@ namespace futoin {
                         [](FutoInAsyncSteps* bsi,
                            void* data,
                            const char* code) {
-                            auto sd = reinterpret_cast<StepData*>(data);
+                            auto sd = static_cast<StepData*>(data);
                             if (sd->on_error_) {
                                 auto asi = wrap_binary_steps(*bsi);
                                 WRAP_EXC(sd->on_error_(*asi, code));
@@ -806,7 +855,7 @@ namespace futoin {
                            const FutoInArgs* args) {
                             auto asi = wrap_binary_steps(*bsi);
                             auto& wasi = static_cast<BinaryStepsWrapper&>(*asi);
-                            auto sd = reinterpret_cast<StepData*>(data);
+                            auto sd = static_cast<StepData*>(data);
                             wasi.next_args_.moveFrom(
                                     const_cast<FutoInArgs&>(*args));
                             WRAP_EXC(sd->func_(*asi));
@@ -818,7 +867,7 @@ namespace futoin {
                         [](FutoInAsyncSteps* bsi,
                            void* data,
                            const char* code) {
-                            auto sd = reinterpret_cast<StepData*>(data);
+                            auto sd = static_cast<StepData*>(data);
                             if (sd->on_error_) {
                                 auto asi = wrap_binary_steps(*bsi);
                                 WRAP_EXC(sd->on_error_(*asi, code));
@@ -841,7 +890,7 @@ namespace futoin {
                         &await_data,
                         [](FutoInAsyncSteps* bsi, void* data) {
                             auto asi = wrap_binary_steps(*bsi);
-                            auto ad = reinterpret_cast<AwaitData*>(data);
+                            auto ad = static_cast<AwaitData*>(data);
 
                             WRAP_EXC(if (ad->await_func_(*asi, {}, false)) {
                                 bsi->api->breakLoop(bsi, nullptr);
@@ -855,7 +904,7 @@ namespace futoin {
                            void* data,
                            const FutoInArgs*) {
                             auto asi = wrap_binary_steps(*bsi);
-                            auto ad = reinterpret_cast<AwaitData*>(data);
+                            auto ad = static_cast<AwaitData*>(data);
 
                             WRAP_EXC(if (!ad->await_func_(*asi, {}, true)) {
                                 FatalMsg() << "await() logic error "

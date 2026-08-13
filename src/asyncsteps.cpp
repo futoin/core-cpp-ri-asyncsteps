@@ -96,14 +96,14 @@ namespace futoin {
             void operator()(IAsyncSteps& asi, ErrorCode err)
             {
                 if (std::strcmp(err, errors::LoopCont) == 0) {
-                    const auto& error_label = asi.state().error_info;
+                    const auto& error_label = asi.state().error_info();
 
                     if (error_label.empty()
                         || (strcmp(error_label.c_str(), label) == 0)) {
                         asi.success();
                     }
                 } else if (std::strcmp(err, errors::LoopBreak) == 0) {
-                    const auto& error_label = asi.state().error_info;
+                    const auto& error_label = asi.state().error_info();
 
                     if (error_label.empty()
                         || (strcmp(error_label.c_str(), label) == 0)) {
@@ -1026,7 +1026,7 @@ namespace futoin {
                     handle_error_sync(next, error_code_.c_str(), true);
                 } catch (const futoin::ExtError& e) {
                     state_.catch_trace(e);
-                    state_.error_info = e.error_info();
+                    state_.set_error_info(ErrorMessage{e.error_info()});
                     handle_error_sync(next, e.what(), true);
                 } catch (const std::exception& e) {
                     state_.catch_trace(e);
@@ -1157,14 +1157,14 @@ namespace futoin {
 
                         if (stack_top_ != current) {
                             code_cache.clear();
-                            state_.error_info.clear();
+                            state_.set_error_info({});
                             // success() was called
                             return;
                         }
 
                         if (!is_sub_queue_empty(current)) {
                             code_cache.clear();
-                            state_.error_info.clear();
+                            state_.set_error_info({});
                             schedule_exec();
                             return;
                         }
@@ -1173,7 +1173,7 @@ namespace futoin {
                         state_.catch_trace(e);
                     } catch (const futoin::ExtError& e) {
                         state_.catch_trace(e);
-                        state_.error_info = e.error_info();
+                        state_.set_error_info(ErrorMessage{e.error_info()});
                         code_cache = e.what();
                     } catch (const std::exception& e) {
                         state_.catch_trace(e);
@@ -1188,11 +1188,7 @@ namespace futoin {
 
             clear_queue();
 
-            if (state_.unhandled_error) {
-                state_.unhandled_error(code_cache.c_str());
-            } else {
-                FatalMsg() << "unhandled AsyncStep error " << code_cache;
-            }
+            state_.unhandled_error(code_cache.c_str());
         }
 
         void BaseAsyncSteps::Impl::handle_cancel() noexcept

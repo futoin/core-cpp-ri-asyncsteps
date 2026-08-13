@@ -161,7 +161,7 @@ namespace futoin {
                     auto& ext_state = ns.current_ext_state();
 
                     if (err == errors::LoopCont) {
-                        const auto& error_label = asi.state().error_info;
+                        const auto& error_label = asi.state().error_info();
 
                         if (error_label.empty()
                             || (strcmp(error_label.c_str(), ext_state.label)
@@ -169,7 +169,7 @@ namespace futoin {
                             asi.success();
                         }
                     } else if (err == errors::LoopBreak) {
-                        const auto& error_label = asi.state().error_info;
+                        const auto& error_label = asi.state().error_info();
 
                         if (error_label.empty()
                             || (strcmp(error_label.c_str(), ext_state.label)
@@ -815,6 +815,10 @@ namespace futoin {
             ~NitroSteps() noexcept final
             {
                 cancel();
+
+                if (stack_alloc_size_ != 0) {
+                    stack_dealloc(stack_alloc_size_);
+                }
             }
 
             IAsyncSteps& parallel(ErrorPass on_error = {}) noexcept final
@@ -1092,13 +1096,13 @@ namespace futoin {
                             if (last_step_ != current) {
                                 // success() was called
                                 error_code_cache_[0] = 0;
-                                impl_.get_state().error_info.clear();
+                                impl_.get_state().set_error_info({});
                                 return;
                             }
 
                             if (!is_sub_queue_empty(current)) {
                                 error_code_cache_[0] = 0;
-                                impl_.get_state().error_info.clear();
+                                impl_.get_state().set_error_info({});
                                 return;
                             }
 #ifndef FUTOIN_NO_EXC
@@ -1107,7 +1111,7 @@ namespace futoin {
                         } catch (const futoin::ExtError& e) {
                             auto& state = impl_.get_state();
                             state.catch_trace(e);
-                            state.error_info = std::move(e.error_info());
+                            state.set_error_info(ErrorMessage{e.error_info()});
                             code = cache_error_code(e.what());
                         } catch (const std::exception& e) {
                             impl_.get_state().catch_trace(e);
@@ -1128,13 +1132,7 @@ namespace futoin {
                 reset_queue();
 
                 if (!impl_.sub_onerror(*this, code)) {
-                    auto& unhandled_error = impl_.get_state().unhandled_error;
-
-                    if (unhandled_error) {
-                        unhandled_error(code);
-                    } else {
-                        FatalMsg() << "unhandled AsyncStep error " << code;
-                    }
+                    impl_.get_state().unhandled_error(code);
                 }
             }
 
@@ -1226,7 +1224,7 @@ namespace futoin {
                     } catch (const futoin::ExtError& e) {
                         auto& state = impl_.get_state();
                         state.catch_trace(e);
-                        state.error_info = std::move(e.error_info());
+                        state.set_error_info(ErrorMessage{e.error_info()});
                         handle_error_unwind(e.what());
                     } catch (const std::exception& e) {
                         impl_.get_state().catch_trace(e);
@@ -1388,10 +1386,6 @@ namespace futoin {
                 queue_begin_ = 0;
                 queue_size_ = 0;
                 timeout_size_ = 0;
-
-                if (stack_alloc_size_ != 0) {
-                    stack_dealloc(stack_alloc_size_);
-                }
             }
 
             RawErrorCode cache_error_code(RawErrorCode code) noexcept

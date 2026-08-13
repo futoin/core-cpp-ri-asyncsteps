@@ -88,7 +88,7 @@ void inner_thread() {
         steps->execute();
     });
     
-    asi.promise.wait();
+    asi.promise().wait();
 }
 
 void external_event_loop() {

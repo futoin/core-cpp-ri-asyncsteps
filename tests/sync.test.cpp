@@ -182,7 +182,7 @@ BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
     bool called = false;
     as3.add(f, [&](IAsyncSteps& asi, ErrorCode err) {
         BOOST_CHECK_EQUAL(err, "DefenseRejected");
-        BOOST_CHECK_EQUAL(asi.state().error_info, "Mutex queue limit");
+        BOOST_CHECK_EQUAL(asi.state().error_info(), "Mutex queue limit");
         called = true;
         asi();
     });
@@ -329,7 +329,7 @@ BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
     as2.add(f);
     as3.add(f, [&](IAsyncSteps& asi, ErrorCode err) {
         BOOST_CHECK_EQUAL(err, "DefenseRejected");
-        BOOST_CHECK_EQUAL(asi.state().error_info, "Throttle queue limit");
+        BOOST_CHECK_EQUAL(asi.state().error_info(), "Throttle queue limit");
         asi(true);
     });
 
@@ -617,7 +617,7 @@ BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
     bool called = false;
     as3.add(f, [&](IAsyncSteps& asi, ErrorCode err) {
         BOOST_CHECK_EQUAL(err, "DefenseRejected");
-        BOOST_CHECK_EQUAL(asi.state().error_info, "Mutex queue limit");
+        BOOST_CHECK_EQUAL(asi.state().error_info(), "Mutex queue limit");
         called = true;
         asi();
     });
