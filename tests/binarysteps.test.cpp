@@ -827,29 +827,20 @@ BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
         asi.state<V>("result").push_back(1);
 
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(11); });
-        asi.add([](IAsyncSteps& asi) {
-            asi.waitExternal();
-            asi.tool().immediate([&]() { asi.success(); });
-        });
+        asi.relinquish();
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(12); });
     });
     p.add([](IAsyncSteps& asi) {
         asi.state<V>("result").push_back(2);
 
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(21); });
-        asi.add([](IAsyncSteps& asi) {
-            asi.waitExternal();
-            asi.tool().immediate([&]() { asi.success(); });
-        });
+        asi.relinquish();
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(22); });
     });
     p.add([](IAsyncSteps& asi) {
         asi.state<V>("result").push_back(3);
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(31); });
-        asi.add([](IAsyncSteps& asi) {
-            asi.waitExternal();
-            asi.tool().immediate([&]() { asi.success(); });
-        });
+        asi.relinquish();
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(32); });
     });
     p.repeat(2, [](IAsyncSteps& asi, size_t i) {
@@ -894,10 +885,7 @@ BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
             asi.add([](IAsyncSteps& asi) {
                 asi.state<V>("result").push_back(11);
             });
-            asi.add([](IAsyncSteps& asi) {
-                asi.waitExternal();
-                asi.tool().immediate([&]() { asi.success(); });
-            });
+            asi.relinquish();
             asi.add([](IAsyncSteps& asi) {
                 asi.state<V>("result").push_back(12);
             });
@@ -908,10 +896,7 @@ BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
             asi.add([](IAsyncSteps& asi) {
                 asi.state<V>("result").push_back(21);
             });
-            asi.add([](IAsyncSteps& asi) {
-                asi.waitExternal();
-                asi.tool().immediate([&]() { asi.success(); });
-            });
+            asi.relinquish();
             asi.add([](IAsyncSteps& asi) {
                 asi.state<V>("result").push_back(22);
             });
@@ -921,10 +906,7 @@ BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
             asi.add([](IAsyncSteps& asi) {
                 asi.state<V>("result").push_back(31);
             });
-            asi.add([](IAsyncSteps& asi) {
-                asi.waitExternal();
-                asi.tool().immediate([&]() { asi.success(); });
-            });
+            asi.relinquish();
             asi.add([](IAsyncSteps& asi) {
                 asi.state<V>("result").push_back(32);
             });
@@ -972,10 +954,7 @@ BOOST_AUTO_TEST_CASE(error_outer) // NOLINT
         asi.state<V>("result").push_back(1);
 
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(11); });
-        asi.add([](IAsyncSteps& asi) {
-            asi.waitExternal();
-            asi.tool().immediate([&]() { asi.success(); });
-        });
+        asi.relinquish();
         asi.add([](IAsyncSteps& asi) {
             asi.state<V>("result").push_back(12);
             asi.error("MyError");
@@ -985,10 +964,7 @@ BOOST_AUTO_TEST_CASE(error_outer) // NOLINT
         asi.state<V>("result").push_back(2);
 
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(21); });
-        asi.add([](IAsyncSteps& asi) {
-            asi.waitExternal();
-            asi.tool().immediate([&]() { asi.success(); });
-        });
+        asi.relinquish();
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(22); });
     });
     p.repeat(3, [](IAsyncSteps& asi, size_t i) {
