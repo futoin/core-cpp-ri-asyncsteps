@@ -131,7 +131,12 @@ namespace futoin {
 
             void emplace_front()
             {
+#ifdef FUTOIN_NO_EXC
+                auto node = allocator_.malloc();
+                new (node) optimized_list_node<T>();
+#else
                 auto node = allocator_.construct();
+#endif
                 node->next = anchor_.next;
                 node->prev = &anchor_;
                 node->next->prev = node;
@@ -141,7 +146,12 @@ namespace futoin {
 
             void emplace_back()
             {
+#ifdef FUTOIN_NO_EXC
+                auto node = allocator_.malloc();
+                new (node) optimized_list_node<T>();
+#else
                 auto node = allocator_.construct();
+#endif
                 node->next = &anchor_;
                 node->prev = anchor_.prev;
                 node->prev->next = node;

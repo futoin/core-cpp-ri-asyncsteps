@@ -29,6 +29,7 @@ project(futoin_asyncsteps
 #-----
 option(FUTOIN_WITH_TESTS "Build with tests" OFF)
 option(FUTOIN_WITH_DOCS "Build documentation" OFF)
+option(FUTOIN_WITH_EXC "Build with exceptions" ON)
 
 # Deps
 #-----
@@ -70,13 +71,7 @@ target_include_directories(${PROJECT_NAME}
     PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include
 )
 
-# since CMake 3.8
-#target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_11 )
-set_target_properties(${PROJECT_NAME} PROPERTIES
-    CXX_STANDARD 11
-    CXX_STANDARD_REQUIRED YES
-    CXX_EXTENSIONS NO
-)
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_11 )
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_COMPILER_IS_CLANG)
     target_compile_options(${PROJECT_NAME} PRIVATE
         # see target_compile_features
@@ -85,6 +80,12 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_COMPILER_IS_CLANG)
         -Wextra
         -Werror
     )
+    if (NOT FUTOIN_WITH_EXC)
+        target_compile_options(${PROJECT_NAME} PRIVATE
+            -fno-exceptions
+            -DFUTOIN_NO_EXC
+        )
+    endif()
 endif()
 
 
@@ -111,6 +112,12 @@ if (FUTOIN_WITH_TESTS)
             -Wextra
             -Werror
         )
+        if (NOT FUTOIN_WITH_EXC)
+            target_compile_options(${PROJECT_TEST_NAME} PRIVATE
+                -fno-exceptions
+                -DFUTOIN_NO_EXC
+            )
+        endif()
     endif()
 
     target_link_libraries(${PROJECT_TEST_NAME}
@@ -124,13 +131,15 @@ if (FUTOIN_WITH_TESTS)
 
     add_test(${PROJECT_NAME} ${PROJECT_TEST_NAME})
 
-    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/bench)
+    if (FUTOIN_WITH_EXC)
+        add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/bench)
+    endif()
 endif()
 
 #--------------------------------------
 # Static analysis & formatting
 #--------------------------------------
-if (FUTOIN_WITH_TESTS)    
+if (FUTOIN_WITH_TESTS)
     #---
     add_custom_target(
         clangtidy-${PROJECT_NAME} ALL
@@ -140,6 +149,7 @@ if (FUTOIN_WITH_TESTS)
         --
         `echo
         $<JOIN:$<TARGET_PROPERTY:${PROJECT_NAME},COMPILE_OPTIONS>,\ >
+        -fexceptions
         -I$<JOIN:$<TARGET_PROPERTY:${PROJECT_NAME},INCLUDE_DIRECTORIES>,\ -I>`
         -DFUTOIN_IN_CLANG_TIDY
     )

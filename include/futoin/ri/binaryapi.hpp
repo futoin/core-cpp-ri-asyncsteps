@@ -32,37 +32,12 @@ namespace futoin {
             explicit BinarySteps(IAsyncSteps& asi);
             ~BinarySteps();
 
-            inline void before_call()
-            {
-                succeeded_ = false;
-                waiting_ = false;
-            }
-
-            inline void after_call()
-            {
-                if (!last_error_.empty()) {
-                    if (last_error_info_.empty()) {
-                        throw futoin::Error(last_error_.c_str());
-                    } else {
-                        throw futoin::ExtError(
-                                last_error_.c_str(), last_error_info_.c_str());
-                    }
-                }
-
-                if (succeeded_) {
-                    asi.success();
-                } else {
-                    waiting_ = true;
-                }
-            }
             IAsyncSteps& asi;
             futoin::string last_error_;
             futoin::string last_error_info_;
             // likely no benefits from flags as aligned to 32-bit any way
             bool managed_;
             bool parallel_{false};
-            std::atomic<bool> succeeded_{false};
-            std::atomic<bool> waiting_{false};
         };
         extern const ::FutoInAsyncStepsAPI binary_steps_api;
         extern const ::FutoInSyncAPI binary_sync_api;

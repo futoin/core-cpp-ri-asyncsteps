@@ -95,7 +95,9 @@ namespace futoin {
                     asi.waitExternal();
                 } else {
                     iter = queue_.end(); // clear
-                    asi.error(errors::DefenseRejected, "Throttle queue limit");
+                    asi.errorNoThrow(
+                            errors::DefenseRejected, "Throttle queue limit");
+                    return;
                 }
             }
             // NOLINTNEXTLINE(bugprone-exception-escape)

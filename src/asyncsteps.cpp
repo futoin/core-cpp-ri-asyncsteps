@@ -983,7 +983,9 @@ namespace futoin {
 
                 stack_top_ = next;
 
+#ifndef FUTOIN_NO_EXC
                 try {
+#endif
                     next->data_.func_(*next);
 
                     // NOLINTNEXTLINE(bugprone-branch-clone)
@@ -1000,10 +1002,12 @@ namespace futoin {
                         // wait external event
                         sched_exec = false;
                     }
+#ifndef FUTOIN_NO_EXC
                 } catch (const std::exception& e) {
                     state_.catch_trace(e);
                     handle_error_sync(next, e.what(), true);
                 }
+#endif
             }
 
             in_exec_ = false;
@@ -1121,7 +1125,9 @@ namespace futoin {
                         std::move(current->data_.on_error_)};
 
                 if (on_error) {
+#ifndef FUTOIN_NO_EXC
                     try {
+#endif
                         on_error(*current, code_cache.c_str());
 
                         if (stack_top_ != current) {
@@ -1135,10 +1141,12 @@ namespace futoin {
                             schedule_exec();
                             return;
                         }
+#ifndef FUTOIN_NO_EXC
                     } catch (const std::exception& e) {
                         state_.catch_trace(e);
                         code_cache = e.what();
                     }
+#endif
                 }
 
                 current = current->parent_;

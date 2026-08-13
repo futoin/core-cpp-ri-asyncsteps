@@ -27,6 +27,27 @@
 
 using namespace futoin;
 
+#ifdef FUTOIN_NO_EXC
+#    define error(...)             \
+        errorNoThrow(__VA_ARGS__); \
+        return
+#    define breakLoop(...)             \
+        breakLoopNoThrow(__VA_ARGS__); \
+        return
+#    define continueLoop(...)             \
+        continueLoopNoThrow(__VA_ARGS__); \
+        return
+#    undef BOOST_CHECK_THROW
+#    define BOOST_CHECK_THROW(x, err) x;
+
+namespace boost {
+    void throw_exception(std::exception const&)
+    {
+        std::terminate();
+    }
+} // namespace boost
+#endif
+
 BOOST_AUTO_TEST_SUITE(asyncsteps) // NOLINT
 
 const std::chrono::milliseconds TEST_DELAY{100}; // NOLINT
@@ -420,11 +441,8 @@ BOOST_AUTO_TEST_CASE(wait_external_error) // NOLINT
 
     asi.execute();
 
-    try {
-        const_cast<IAsyncSteps*>(wait.get_future().get())->error("SomeError");
-    } catch (...) {
-        // pass
-    }
+    const_cast<IAsyncSteps*>(wait.get_future().get())
+            ->errorNoThrow("SomeError");
 
     BOOST_CHECK(done.get_future().get());
     BOOST_CHECK_EQUAL(count, 2U);
@@ -488,6 +506,7 @@ BOOST_AUTO_TEST_CASE(set_timeout_fail) // NOLINT
     BOOST_CHECK_EQUAL(count, 3U);
 }
 
+#ifndef FUTOIN_NO_EXC
 BOOST_AUTO_TEST_CASE(catch_trace) // NOLINT
 {
     ri::AsyncTool at;
@@ -518,6 +537,7 @@ BOOST_AUTO_TEST_CASE(catch_trace) // NOLINT
     done.get_future().wait();
     BOOST_CHECK_EQUAL(count, 2U);
 }
+#endif
 
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
 
@@ -1187,6 +1207,7 @@ BOOST_AUTO_TEST_CASE(promise_res) // NOLINT
     BOOST_CHECK_EQUAL(count.load(), 3U);
 }
 
+#ifndef FUTOIN_NO_EXC
 BOOST_AUTO_TEST_CASE(promise_error) // NOLINT
 {
     ri::AsyncTool at;
@@ -1210,6 +1231,7 @@ BOOST_AUTO_TEST_CASE(promise_error) // NOLINT
     BOOST_CHECK_THROW(asi.promise().get(), Error);
     BOOST_CHECK_EQUAL(count.load(), 2U);
 }
+#endif
 
 BOOST_AUTO_TEST_CASE(await_void) // NOLINT
 {
@@ -1313,6 +1335,7 @@ BOOST_AUTO_TEST_CASE(await_cancel) // NOLINT
     done.get_future().wait();
 }
 
+#ifndef FUTOIN_NO_EXC
 BOOST_AUTO_TEST_CASE(await_error) // NOLINT
 {
     ri::AsyncTool at;
@@ -1352,6 +1375,7 @@ BOOST_AUTO_TEST_CASE(await_error) // NOLINT
 
     done.get_future().wait();
 }
+#endif
 
 struct AllocObject
 {

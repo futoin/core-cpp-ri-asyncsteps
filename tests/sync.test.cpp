@@ -32,6 +32,14 @@ using futoin::IAsyncSteps;
 
 BOOST_AUTO_TEST_SUITE(synctest) // NOLINT
 
+void asi_yield(IAsyncSteps& asi)
+{
+    asi.add([&](IAsyncSteps& asi) {
+        asi.waitExternal();
+        asi.tool().immediate([&]() { asi.success(); });
+    });
+}
+
 //=============================================================================
 
 BOOST_AUTO_TEST_SUITE(mutex) // NOLINT
@@ -49,6 +57,7 @@ BOOST_AUTO_TEST_CASE(outer) // NOLINT
 
     auto f = [&](IAsyncSteps& asi) {
         count.fetch_add(1);
+        asi_yield(asi);
         asi.add([&](IAsyncSteps&) {
             max.store(std::max(max, count));
             count.fetch_sub(1);
@@ -80,6 +89,7 @@ BOOST_AUTO_TEST_CASE(inner) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(mtx, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
+            asi_yield(asi);
             asi.add([&](IAsyncSteps&) {
                 max.store(std::max(max, count));
                 count.fetch_sub(1);
@@ -130,6 +140,7 @@ BOOST_AUTO_TEST_CASE(recursion) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(mtx, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
+            asi_yield(asi);
             asi.sync(mtx, [&](IAsyncSteps&) {
                 max.store(std::max(max, count));
                 count.fetch_sub(1);
@@ -163,9 +174,13 @@ BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(mtx, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
-            asi.sync(mtx, [&](IAsyncSteps&) {
-                max.store(std::max(max, count));
-                count.fetch_sub(1);
+            asi.sync(mtx, [&](IAsyncSteps& asi) {
+                asi_yield(asi);
+                asi.add([&](IAsyncSteps&) {
+                    max.store(std::max(max, count));
+                    count.fetch_sub(1);
+                });
+                asi_yield(asi);
             });
         });
     };
@@ -207,9 +222,12 @@ BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(mtx, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
-            asi.sync(mtx, [&](IAsyncSteps&) {
-                max.store(std::max(max, count));
-                count.fetch_sub(1);
+            asi.sync(mtx, [&](IAsyncSteps& asi) {
+                asi_yield(asi);
+                asi.add([&](IAsyncSteps&) {
+                    max.store(std::max(max, count));
+                    count.fetch_sub(1);
+                });
             });
         });
     };
@@ -346,9 +364,12 @@ BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(thr, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
-            asi.add([&](IAsyncSteps&) {
-                max.store(std::max(max, count));
-                count.fetch_sub(1);
+            asi.add([&](IAsyncSteps& asi) {
+                asi_yield(asi);
+                asi.add([&](IAsyncSteps&) {
+                    max.store(std::max(max, count));
+                    count.fetch_sub(1);
+                });
             });
         });
     };
@@ -588,9 +609,13 @@ BOOST_AUTO_TEST_CASE(queue_max) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(lmtr, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
-            asi.sync(lmtr, [&](IAsyncSteps&) {
-                max.store(std::max(max, count));
-                count.fetch_sub(1);
+            asi.sync(lmtr, [&](IAsyncSteps& asi) {
+                asi_yield(asi);
+                asi.add([&](IAsyncSteps&) {
+                    max.store(std::max(max, count));
+                    count.fetch_sub(1);
+                });
+                asi_yield(asi);
             });
         });
     };
@@ -651,9 +676,12 @@ BOOST_AUTO_TEST_CASE(multi_max) // NOLINT
     auto f = [&](IAsyncSteps& asi) {
         asi.sync(lmtr, [&](IAsyncSteps& asi) {
             count.fetch_add(1);
-            asi.sync(lmtr, [&](IAsyncSteps&) {
-                max.store(std::max(max, count));
-                count.fetch_sub(1);
+            asi.sync(lmtr, [&](IAsyncSteps& asi) {
+                asi_yield(asi);
+                asi.add([&](IAsyncSteps&) {
+                    max.store(std::max(max, count));
+                    count.fetch_sub(1);
+                });
             });
         });
     };

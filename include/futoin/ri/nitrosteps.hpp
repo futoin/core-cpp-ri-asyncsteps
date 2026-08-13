@@ -1084,7 +1084,9 @@ namespace futoin {
                             std::move(current->on_error_)};
 
                     if (on_error) {
+#ifndef FUTOIN_NO_EXC
                         try {
+#endif
                             on_error(*this, code);
 
                             if (last_step_ != current) {
@@ -1097,10 +1099,12 @@ namespace futoin {
                                 error_code_cache_[0] = 0;
                                 return;
                             }
+#ifndef FUTOIN_NO_EXC
                         } catch (const std::exception& e) {
                             impl_.get_state().catch_trace(e);
                             code = cache_error_code(e.what());
                         }
+#endif
                     }
 
                     free_step(current);
@@ -1190,7 +1194,9 @@ namespace futoin {
 
                     last_step_ = next;
 
+#ifndef FUTOIN_NO_EXC
                     try {
+#endif
                         next->func_(*this);
 
                         if (last_step_ != next) {
@@ -1204,10 +1210,12 @@ namespace futoin {
                         } else {
                             sched_exec = false;
                         }
+#ifndef FUTOIN_NO_EXC
                     } catch (const std::exception& e) {
                         impl_.get_state().catch_trace(e);
                         handle_error_unwind(e.what());
                     }
+#endif
                 }
 
                 in_exec_ = false;

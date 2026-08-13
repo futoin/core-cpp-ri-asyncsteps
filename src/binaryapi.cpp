@@ -66,15 +66,11 @@ namespace futoin {
                                         .nextargs()
                                         .moveTo(args);
                                 auto& bsi = static_cast<BinarySteps&>(asi.binary());
-                                bsi.before_call();
                                 f(&bsi, data, &args);
-                                bsi.after_call();
                             },
                             (eh != nullptr) ? [data, eh](IAsyncSteps& asi, ErrorCode code) {
                                 auto& bsi = static_cast<BinarySteps&>(asi.binary());
-                                bsi.before_call();
                                 eh(&bsi, data, code);
-                                bsi.after_call();
                             } : asyncsteps::ErrorPass{});
                 },
                 // Index 1 - parallel
@@ -84,9 +80,7 @@ namespace futoin {
                     auto& res = static_cast<BinarySteps*>(bsi)->asi.parallel(
                             (eh != nullptr) ? [data, eh](IAsyncSteps& asi, ErrorCode code) {
                                 auto& bsi = static_cast<BinarySteps&>(asi.binary());
-                                bsi.before_call();
                                 eh(&bsi, data, code);
-                                bsi.after_call();
                             } : asyncsteps::ErrorPass{});
                     return &(res.binary());
                 },
@@ -111,13 +105,17 @@ namespace futoin {
                                   }};
                     }
 
+#ifndef FUTOIN_NO_EXC
                     try {
+#endif
                         return any_cast<UPtr&>(av).get();
+#ifndef FUTOIN_NO_EXC
                     } catch (const std::bad_cast& e) {
                         static_cast<BinarySteps*>(bsi)->asi.state().catch_trace(
                                 e);
                         return nullptr;
                     }
+#endif
                 },
                 // Index 3 - stack
                 [](FutoInAsyncSteps* bsi,
@@ -148,11 +146,7 @@ namespace futoin {
                                 .moveFrom(*args);
                     }
 
-                    if (wbsi.waiting_) {
-                        asi.success();
-                    } else {
-                        wbsi.succeeded_ = true;
-                    }
+                    asi.success();
                 },
                 // Index 5 - handle_error
                 [](FutoInAsyncSteps* bsi, const char* code, const char* info)
@@ -171,12 +165,7 @@ namespace futoin {
                         return;
                     }
 
-                    if (wbsi.waiting_) {
-                        asi.errorNoThrow(code, info ? info : "");
-                    } else {
-                        wbsi.last_error_ = code;
-                        wbsi.last_error_info_ = info ? info : "";
-                    }
+                    asi.errorNoThrow(code, info ? info : "");
                 },
                 // Index 6 - setTimeout
                 [](FutoInAsyncSteps* bsi, uint32_t timeout_ms) -> void {
@@ -205,9 +194,7 @@ namespace futoin {
                             [data, f](IAsyncSteps& asi) {
                                 auto& bsi =
                                         static_cast<BinarySteps&>(asi.binary());
-                                bsi.before_call();
                                 f(&bsi, data);
-                                bsi.after_call();
                             },
                             label);
                 },
@@ -222,28 +209,18 @@ namespace futoin {
                             [data, f](IAsyncSteps& asi, size_t i) {
                                 auto& bsi =
                                         static_cast<BinarySteps&>(asi.binary());
-                                bsi.before_call();
                                 f(&bsi, data, i);
-                                bsi.after_call();
                             },
                             label);
                 },
                 // Index 11 - breakLoop
                 [](FutoInAsyncSteps* bsi, const char* label) -> void {
                     static_cast<BinarySteps*>(bsi)->asi.breakLoopNoThrow(label);
-                    static_cast<BinarySteps*>(bsi)->last_error_ =
-                            errors::LoopBreak;
-                    static_cast<BinarySteps*>(bsi)->last_error_info_ =
-                            label ? label : "";
                 },
                 // Index 12 - continueLoop
                 [](FutoInAsyncSteps* bsi, const char* label) -> void {
                     static_cast<BinarySteps*>(bsi)->asi.continueLoopNoThrow(
                             label);
-                    static_cast<BinarySteps*>(bsi)->last_error_ =
-                            errors::LoopCont;
-                    static_cast<BinarySteps*>(bsi)->last_error_info_ =
-                            label ? label : "";
                 },
                 // Index 13 - execute
                 [](FutoInAsyncSteps* bsi,
@@ -287,15 +264,11 @@ namespace futoin {
                                         .nextargs()
                                         .moveTo(args);
                                 auto& bsi = static_cast<BinarySteps&>(asi.binary());
-                                bsi.before_call();
                                 f(&bsi, data, &args);
-                                bsi.after_call();
                             },
                             (eh != nullptr) ? [data, eh](IAsyncSteps& asi, ErrorCode code) {
                                 auto& bsi = static_cast<BinarySteps&>(asi.binary());
-                                bsi.before_call();
                                 eh(&bsi, data, code);
-                                bsi.after_call();
                             } : asyncsteps::ErrorPass{});
                 },
                 // Index 16 - rootId
@@ -357,7 +330,9 @@ namespace futoin {
                 // Index 0 - lock
                 [](FutoInAsyncSteps* bsi, FutoInSync* sync) {
                     IAsyncSteps* asi = nullptr;
+#ifndef FUTOIN_NO_EXC
                     try {
+#endif
                         auto& isync = static_cast<ISync&>(*sync);
 
                         if (bsi->api == &binary_steps_api) {
@@ -369,17 +344,13 @@ namespace futoin {
                             isync.lock(*asi);
                             asi->stack<UniqueAsyncPtr>().swap(wasi);
                         }
-                    } catch (const futoin::ExtError& e) {
-                        auto& s = asi->state();
-                        s.catch_trace(e);
-                        s.error_info = e.error_info();
-                        static_cast<details::IAsyncStepsAccessor*>(asi)
-                                ->handle_error(e.what());
+#ifndef FUTOIN_NO_EXC
+                    } catch (const futoin::Error& e) {
+                        // that must be already recorded
                     } catch (const std::exception& e) {
-                        asi->state().catch_trace(e);
-                        static_cast<details::IAsyncStepsAccessor*>(asi)
-                                ->handle_error(e.what());
+                        asi->errorNoThrow(e.what());
                     }
+#endif
                 },
                 // Index 1 - unlock
                 [](FutoInAsyncSteps* bsi, FutoInSync* sync) {
@@ -398,6 +369,9 @@ namespace futoin {
         // --------------------------------------------------------------------
         // Wrapper for AsyncSteps C++ interface
         // --------------------------------------------------------------------
+#ifdef FUTOIN_NO_EXC
+#    define WRAP_EXC(expr) expr;
+#else
         static asyncsteps::BaseState& handle_wrap_state(
                 IAsyncSteps& asi, FutoInAsyncSteps* bsi)
         {
@@ -414,15 +388,17 @@ namespace futoin {
             static_cast<details::IAsyncStepsAccessor&>(asi).handle_error(
                     e.what());
         }
-#define WRAP_EXC(expr)                                            \
-    try {                                                         \
-        expr;                                                     \
-    } catch (const futoin::ExtError& e) {                         \
-        handle_wrap_state(*asi, bsi).error_info = e.error_info(); \
-        handle_wrap_error(*asi, bsi, e);                          \
-    } catch (const std::exception& e) {                           \
-        handle_wrap_error(*asi, bsi, e);                          \
-    }
+
+#    define WRAP_EXC(expr)                                            \
+        try {                                                         \
+            expr;                                                     \
+        } catch (const futoin::ExtError& e) {                         \
+            handle_wrap_state(*asi, bsi).error_info = e.error_info(); \
+            handle_wrap_error(*asi, bsi, e);                          \
+        } catch (const std::exception& e) {                           \
+            handle_wrap_error(*asi, bsi, e);                          \
+        }
+#endif
 
         struct BinaryStepsWrapper final : IAsyncSteps
         {
@@ -858,8 +834,23 @@ namespace futoin {
                             auto asi = wrap_binary_steps(*bsi);
                             auto ad = reinterpret_cast<AwaitData*>(data);
 
-                            WRAP_EXC(if (ad->await_func_(*asi, {}, true)) {
+                            WRAP_EXC(if (ad->await_func_(*asi, {}, false)) {
                                 bsi->api->breakLoop(bsi, nullptr);
+                            })
+                        },
+                        nullptr);
+                binary_steps_.api->add(
+                        &binary_steps_,
+                        &await_data,
+                        [](FutoInAsyncSteps* bsi,
+                           void* data,
+                           const FutoInArgs*) {
+                            auto asi = wrap_binary_steps(*bsi);
+                            auto ad = reinterpret_cast<AwaitData*>(data);
+
+                            WRAP_EXC(if (!ad->await_func_(*asi, {}, true)) {
+                                FatalMsg() << "await() logic error "
+                                              "BinaryStepsWrapper";
                             })
                         },
                         nullptr);

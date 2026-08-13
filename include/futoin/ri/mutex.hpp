@@ -83,7 +83,9 @@ namespace futoin {
                         asi.waitExternal();
                     } else {
                         iter = locked_list_.end(); // clear
-                        asi.error(errors::DefenseRejected, "Mutex queue limit");
+                        asi.errorNoThrow(
+                                errors::DefenseRejected, "Mutex queue limit");
+                        return;
                     }
                 } else {
                     // Must be already locked

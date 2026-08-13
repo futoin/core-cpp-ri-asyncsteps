@@ -27,6 +27,20 @@
 
 using namespace futoin;
 
+#ifdef FUTOIN_NO_EXC
+#    define error(...)             \
+        errorNoThrow(__VA_ARGS__); \
+        return
+#    define breakLoop(...)             \
+        breakLoopNoThrow(__VA_ARGS__); \
+        return
+#    define continueLoop(...)             \
+        continueLoopNoThrow(__VA_ARGS__); \
+        return
+#    undef BOOST_CHECK_THROW
+#    define BOOST_CHECK_THROW(x, err) x;
+#endif
+
 BOOST_AUTO_TEST_SUITE(binarysteps) // NOLINT
 
 const std::chrono::milliseconds TEST_DELAY{100}; // NOLINT
@@ -322,11 +336,8 @@ BOOST_AUTO_TEST_CASE(wait_external_error) // NOLINT
 
     asi.execute();
 
-    try {
-        const_cast<IAsyncSteps*>(wait.get_future().get())->error("SomeError");
-    } catch (...) {
-        // pass
-    }
+    const_cast<IAsyncSteps*>(wait.get_future().get())
+            ->errorNoThrow("SomeError");
 
     BOOST_CHECK(done.get_future().get());
     BOOST_CHECK_EQUAL(count, 2U);
@@ -425,9 +436,11 @@ BOOST_AUTO_TEST_CASE(catch_trace) // NOLINT
 
     asi.execute();
     done.get_future().wait();
+#ifndef FUTOIN_NO_EXC
     // NOTE: it may be called twice when binarysteps are aware of underlying
     // implementation.
     BOOST_CHECK_GE(count, 2U);
+#endif
 }
 
 BOOST_AUTO_TEST_SUITE_END() // NOLINT
@@ -725,17 +738,29 @@ BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
         asi.state<V>("result").push_back(1);
 
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(11); });
+        asi.add([](IAsyncSteps& asi) {
+            asi.waitExternal();
+            asi.tool().immediate([&]() { asi.success(); });
+        });
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(12); });
     });
     p.add([](IAsyncSteps& asi) {
         asi.state<V>("result").push_back(2);
 
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(21); });
+        asi.add([](IAsyncSteps& asi) {
+            asi.waitExternal();
+            asi.tool().immediate([&]() { asi.success(); });
+        });
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(22); });
     });
     p.add([](IAsyncSteps& asi) {
         asi.state<V>("result").push_back(3);
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(31); });
+        asi.add([](IAsyncSteps& asi) {
+            asi.waitExternal();
+            asi.tool().immediate([&]() { asi.success(); });
+        });
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(32); });
     });
     p.repeat(2, [](IAsyncSteps& asi, size_t i) {
@@ -750,7 +775,7 @@ BOOST_AUTO_TEST_CASE(execute_outer) // NOLINT
 
     done.get_future().wait();
 
-    V required{1, 2, 3, 40, 11, 21, 31, 41, 12, 22, 32};
+    V required{1, 11, 2, 21, 3, 31, 40, 41, 12, 22, 32};
     BOOST_CHECK_EQUAL_COLLECTIONS(
             asi.state<V>("result").begin(),
             asi.state<V>("result").end(),
@@ -781,6 +806,10 @@ BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
                 asi.state<V>("result").push_back(11);
             });
             asi.add([](IAsyncSteps& asi) {
+                asi.waitExternal();
+                asi.tool().immediate([&]() { asi.success(); });
+            });
+            asi.add([](IAsyncSteps& asi) {
                 asi.state<V>("result").push_back(12);
             });
         });
@@ -791,6 +820,10 @@ BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
                 asi.state<V>("result").push_back(21);
             });
             asi.add([](IAsyncSteps& asi) {
+                asi.waitExternal();
+                asi.tool().immediate([&]() { asi.success(); });
+            });
+            asi.add([](IAsyncSteps& asi) {
                 asi.state<V>("result").push_back(22);
             });
         });
@@ -798,6 +831,10 @@ BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
             asi.state<V>("result").push_back(3);
             asi.add([](IAsyncSteps& asi) {
                 asi.state<V>("result").push_back(31);
+            });
+            asi.add([](IAsyncSteps& asi) {
+                asi.waitExternal();
+                asi.tool().immediate([&]() { asi.success(); });
             });
             asi.add([](IAsyncSteps& asi) {
                 asi.state<V>("result").push_back(32);
@@ -813,7 +850,7 @@ BOOST_AUTO_TEST_CASE(execute_inner) // NOLINT
 
     done.get_future().wait();
 
-    V required{0, 1, 2, 3, 40, 11, 21, 31, 41, 12, 22, 32};
+    V required{0, 1, 11, 2, 21, 3, 31, 40, 41, 12, 22, 32};
     BOOST_CHECK_EQUAL_COLLECTIONS(
             asi.state<V>("result").begin(),
             asi.state<V>("result").end(),
@@ -847,6 +884,10 @@ BOOST_AUTO_TEST_CASE(error_outer) // NOLINT
 
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(11); });
         asi.add([](IAsyncSteps& asi) {
+            asi.waitExternal();
+            asi.tool().immediate([&]() { asi.success(); });
+        });
+        asi.add([](IAsyncSteps& asi) {
             asi.state<V>("result").push_back(12);
             asi.error("MyError");
         });
@@ -855,6 +896,10 @@ BOOST_AUTO_TEST_CASE(error_outer) // NOLINT
         asi.state<V>("result").push_back(2);
 
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(21); });
+        asi.add([](IAsyncSteps& asi) {
+            asi.waitExternal();
+            asi.tool().immediate([&]() { asi.success(); });
+        });
         asi.add([](IAsyncSteps& asi) { asi.state<V>("result").push_back(22); });
     });
     p.repeat(3, [](IAsyncSteps& asi, size_t i) {
@@ -866,7 +911,7 @@ BOOST_AUTO_TEST_CASE(error_outer) // NOLINT
 
     done.get_future().wait();
 
-    V required{1, 2, 40, 11, 21, 41, 12, 0};
+    V required{1, 11, 2, 21, 40, 41, 42, 12, 0};
     BOOST_CHECK_EQUAL_COLLECTIONS(
             asi.state<V>("result").begin(),
             asi.state<V>("result").end(),
@@ -923,6 +968,7 @@ BOOST_AUTO_TEST_CASE(promise_res) // NOLINT
     BOOST_CHECK_EQUAL(count.load(), 3U);
 }
 
+#ifndef FUTOIN_NO_EXC
 BOOST_AUTO_TEST_CASE(promise_error) // NOLINT
 {
     ri::AsyncTool at;
@@ -948,6 +994,7 @@ BOOST_AUTO_TEST_CASE(promise_error) // NOLINT
     BOOST_CHECK_THROW(asi.promise().get(), Error);
     BOOST_CHECK_EQUAL(count.load(), 2U);
 }
+#endif
 
 BOOST_AUTO_TEST_CASE(await_void) // NOLINT
 {
@@ -1057,6 +1104,7 @@ BOOST_AUTO_TEST_CASE(await_cancel) // NOLINT
     done.get_future().wait();
 }
 
+#ifndef FUTOIN_NO_EXC
 BOOST_AUTO_TEST_CASE(await_error) // NOLINT
 {
     ri::AsyncTool at;
@@ -1098,6 +1146,7 @@ BOOST_AUTO_TEST_CASE(await_error) // NOLINT
 
     done.get_future().wait();
 }
+#endif
 
 struct AllocObject
 {
